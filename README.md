@@ -69,6 +69,8 @@ python -m exohunt.cli --target "TIC 261136679" --preprocess-mode per-sector --bl
 
 Each run writes ranked BLS candidate tables to `outputs/candidates/` as deterministic
 CSV/JSON files keyed by target and run configuration.
+Candidate rows also include vetting flags/reasons (`pass_min_transit_count`,
+`pass_odd_even_depth`, `pass_alias_harmonic`, `vetting_pass`, `vetting_reasons`).
 
 When BLS candidates exist, per-candidate diagnostics are written to `outputs/diagnostics/`:
 - periodogram plots with candidate period marker

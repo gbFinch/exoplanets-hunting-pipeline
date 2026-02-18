@@ -67,10 +67,11 @@ Important note: "When implementing the step explain the theory behind the milest
 - Exit criteria: top-N candidates each have periodogram and phase-folded diagnostic assets.
 - Implemented in `src/exohunt/plotting.py` + `src/exohunt/pipeline.py`.
 
-12. [Pending] [Validation] Add candidate vetting heuristics v1
+12. [Done] [Validation] Add candidate vetting heuristics v1
 - Add odd-even depth comparison.
 - Add minimum transit-count and alias/harmonic checks.
 - Exit criteria: each candidate has pass/fail vetting flags with recorded reasons.
+- Implemented in `src/exohunt/vetting.py` and integrated into candidate outputs in `src/exohunt/pipeline.py`.
 
 13. [Pending] [Engineering] Add preliminary planet parameter estimation
 - Estimate first-pass radius ratio and duration-based plausibility checks.

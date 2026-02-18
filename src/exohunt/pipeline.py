@@ -39,6 +39,7 @@ from exohunt.plotting import (
 )
 from exohunt.preprocess import compute_preprocessing_quality_metrics, prepare_lightcurve
 from exohunt.progress import _render_progress
+from exohunt.vetting import CandidateVettingResult, vet_bls_candidates
 
 
 LOGGER = logging.getLogger(__name__)
@@ -78,7 +79,21 @@ _CANDIDATE_COLUMNS = [
     "power",
     "transit_time",
     "transit_count_estimate",
+    "pass_min_transit_count",
+    "pass_odd_even_depth",
+    "pass_alias_harmonic",
+    "vetting_pass",
+    "transit_count_observed",
+    "odd_depth_ppm",
+    "even_depth_ppm",
+    "odd_even_depth_mismatch_fraction",
+    "alias_harmonic_with_rank",
+    "vetting_reasons",
 ]
+
+_VETTING_MIN_TRANSIT_COUNT = 2
+_VETTING_ODD_EVEN_MAX_MISMATCH_FRACTION = 0.30
+_VETTING_ALIAS_TOLERANCE_FRACTION = 0.02
 
 
 def _metrics_cache_path(
@@ -250,6 +265,7 @@ def _write_bls_candidates(
     output_key: str,
     metadata: dict[str, str | int | float | bool],
     candidates: list[BLSCandidate],
+    vetting_by_rank: dict[int, CandidateVettingResult] | None = None,
 ) -> tuple[Path, Path]:
     output_dir = Path("outputs/candidates")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -264,12 +280,36 @@ def _write_bls_candidates(
         for candidate in candidates:
             row = dict(metadata)
             row.update(asdict(candidate))
+            vetting = (vetting_by_rank or {}).get(int(candidate.rank))
+            if vetting is not None:
+                row.update(asdict(vetting))
+            else:
+                row.update(
+                    {
+                        "pass_min_transit_count": None,
+                        "pass_odd_even_depth": None,
+                        "pass_alias_harmonic": None,
+                        "vetting_pass": None,
+                        "transit_count_observed": None,
+                        "odd_depth_ppm": None,
+                        "even_depth_ppm": None,
+                        "odd_even_depth_mismatch_fraction": None,
+                        "alias_harmonic_with_rank": None,
+                        "vetting_reasons": "",
+                    }
+                )
             writer.writerow(row)
 
     payload = {
         "metadata": metadata,
-        "candidates": [asdict(candidate) for candidate in candidates],
+        "candidates": [],
     }
+    for candidate in candidates:
+        row = asdict(candidate)
+        vetting = (vetting_by_rank or {}).get(int(candidate.rank))
+        if vetting is not None:
+            row.update(asdict(vetting))
+        payload["candidates"].append(row)
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return csv_path, json_path
 
@@ -581,6 +621,7 @@ def fetch_and_plot(
     candidate_csv_paths: list[Path] = []
     candidate_json_paths: list[Path] = []
     diagnostic_assets: list[tuple[Path, Path]] = []
+    stitched_vetting_by_rank: dict[int, CandidateVettingResult] = {}
     run_utc = datetime.now(tz=timezone.utc).isoformat()
     if run_bls:
         LOGGER.info("Step 5/7: running BLS transit search")
@@ -660,6 +701,13 @@ def fetch_and_plot(
                     output_key=f"{segment.segment_id}_{segment_key}",
                     metadata=segment_metadata,
                     candidates=segment_candidates,
+                    vetting_by_rank=vet_bls_candidates(
+                        lc_prepared=segment.lc,
+                        candidates=segment_candidates,
+                        min_transit_count=_VETTING_MIN_TRANSIT_COUNT,
+                        odd_even_mismatch_max_fraction=_VETTING_ODD_EVEN_MAX_MISMATCH_FRACTION,
+                        alias_tolerance_fraction=_VETTING_ALIAS_TOLERANCE_FRACTION,
+                    ),
                 )
                 candidate_csv_paths.append(csv_path)
                 candidate_json_paths.append(json_path)
@@ -720,6 +768,13 @@ def fetch_and_plot(
                 )
                 if refined_candidates:
                     bls_candidates = refined_candidates
+                stitched_vetting_by_rank = vet_bls_candidates(
+                    lc_prepared=lc_prepared,
+                    candidates=bls_candidates,
+                    min_transit_count=_VETTING_MIN_TRANSIT_COUNT,
+                    odd_even_mismatch_max_fraction=_VETTING_ODD_EVEN_MAX_MISMATCH_FRACTION,
+                    alias_tolerance_fraction=_VETTING_ALIAS_TOLERANCE_FRACTION,
+                )
             LOGGER.info(
                 "BLS complete in %.2fs (%d candidate%s)",
                 perf_counter() - step_started,
@@ -779,6 +834,7 @@ def fetch_and_plot(
             output_key=candidate_output_key,
             metadata=candidate_metadata,
             candidates=bls_candidates,
+            vetting_by_rank=stitched_vetting_by_rank,
         )
         candidate_csv_paths.append(candidate_csv_path)
         candidate_json_paths.append(candidate_json_path)
@@ -932,6 +988,7 @@ def fetch_and_plot(
     )
     LOGGER.info("BLS candidates found: %d", len(bls_candidates))
     for candidate in bls_candidates:
+        vetting = stitched_vetting_by_rank.get(int(candidate.rank))
         LOGGER.info(
             "  - BLS #%d: period=%.6fd duration=%.3fh depth=%.6g (%.1f ppm) power=%.6g transit_count_est=%.2f",
             candidate.rank,
@@ -942,6 +999,15 @@ def fetch_and_plot(
             candidate.power,
             candidate.transit_count_estimate,
         )
+        if vetting is not None:
+            LOGGER.info(
+                "    vetting: pass=%s min_count=%s odd_even=%s alias=%s reasons=%s",
+                vetting.vetting_pass,
+                vetting.pass_min_transit_count,
+                vetting.pass_odd_even_depth,
+                vetting.pass_alias_harmonic,
+                vetting.vetting_reasons,
+            )
     LOGGER.info("Total runtime: %.2fs", perf_counter() - started_at)
     if output_path is not None:
         LOGGER.info("Saved plot: %s", output_path)

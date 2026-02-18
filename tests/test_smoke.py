@@ -16,6 +16,7 @@ from exohunt.cache import (
 from exohunt.pipeline import fetch_and_plot
 from exohunt.plotting import _apply_time_window, _downsample_minmax, save_candidate_diagnostics
 from exohunt.preprocess import compute_preprocessing_quality_metrics
+from exohunt.vetting import vet_bls_candidates
 
 
 def test_safe_target_name():
@@ -540,6 +541,63 @@ def test_refine_bls_candidates_improves_period_estimate():
     assert refined
     refined_err = abs(refined[0].period_days - true_period)
     assert refined_err <= coarse_err
+
+
+def test_vet_bls_candidates_flags_alias_harmonic():
+    lc = _BLSLC(time=np.arange(0.0, 40.0, 0.02), flux=np.ones(2000))
+    candidates = [
+        BLSCandidate(
+            rank=1,
+            period_days=2.0,
+            duration_hours=3.0,
+            depth=0.001,
+            depth_ppm=1000.0,
+            power=10.0,
+            transit_time=0.2,
+            transit_count_estimate=20.0,
+        ),
+        BLSCandidate(
+            rank=2,
+            period_days=4.0,
+            duration_hours=3.0,
+            depth=0.0008,
+            depth_ppm=800.0,
+            power=5.0,
+            transit_time=0.2,
+            transit_count_estimate=10.0,
+        ),
+    ]
+    vet = vet_bls_candidates(lc_prepared=lc, candidates=candidates)
+    assert vet[1].pass_alias_harmonic
+    assert not vet[2].pass_alias_harmonic
+    assert "alias_or_harmonic" in vet[2].vetting_reasons
+
+
+def test_vet_bls_candidates_flags_odd_even_mismatch():
+    period_days = 2.0
+    duration_days = 2.5 / 24.0
+    time = np.arange(0.0, 80.0, 0.01)
+    flux = np.ones_like(time)
+    cycles = np.round((time - 0.4) / period_days).astype(int)
+    centers = 0.4 + cycles * period_days
+    in_window = np.abs(time - centers) <= 0.5 * duration_days
+    odd = (cycles % 2) == 1
+    flux[in_window & odd] -= 0.004
+    flux[in_window & ~odd] -= 0.010
+    lc = _BLSLC(time=time, flux=flux)
+    candidate = BLSCandidate(
+        rank=1,
+        period_days=period_days,
+        duration_hours=duration_days * 24.0,
+        depth=0.008,
+        depth_ppm=8000.0,
+        power=8.0,
+        transit_time=0.4,
+        transit_count_estimate=40.0,
+    )
+    vet = vet_bls_candidates(lc_prepared=lc, candidates=[candidate])
+    assert not vet[1].pass_odd_even_depth
+    assert vet[1].odd_even_depth_mismatch_fraction > 0.3
 
 
 def test_save_candidate_diagnostics_writes_assets(monkeypatch, tmp_path):
