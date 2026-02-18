@@ -66,6 +66,29 @@ def build_parser() -> argparse.ArgumentParser:
         default="SPOC",
         help="Optional comma-separated author filter, e.g. 'SPOC'.",
     )
+    parser.add_argument(
+        "--interactive-html",
+        action="store_true",
+        help="Also save an interactive Plotly HTML (downsampled for performance).",
+    )
+    parser.add_argument(
+        "--interactive-max-points",
+        type=int,
+        default=200000,
+        help="Maximum points per trace in interactive HTML via min/max downsampling.",
+    )
+    parser.add_argument(
+        "--plot-time-start",
+        type=float,
+        default=None,
+        help="Optional plot x-axis start in BJD-2450000.",
+    )
+    parser.add_argument(
+        "--plot-time-end",
+        type=float,
+        default=None,
+        help="Optional plot x-axis end in BJD-2450000.",
+    )
     return parser
 
 
@@ -83,6 +106,10 @@ def main() -> int:
         preprocess_mode=args.preprocess_mode,
         sectors=args.sectors,
         authors=args.authors,
+        interactive_html=args.interactive_html,
+        interactive_max_points=args.interactive_max_points,
+        plot_time_start=args.plot_time_start,
+        plot_time_end=args.plot_time_end,
     )
     return 0
 

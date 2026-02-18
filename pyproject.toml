@@ -15,6 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+plotting = [
+  "plotly",
+]
 dev = [
   "ruff",
   "pytest",

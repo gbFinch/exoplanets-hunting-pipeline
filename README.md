@@ -34,4 +34,17 @@ Example per-sector filters:
 python -m exohunt.cli --target "TIC 261136679" --preprocess-mode per-sector --sectors 14,15 --authors SPOC
 ```
 
+Interactive downsampled HTML (recommended for very large light curves):
+
+```bash
+pip install -e .[plotting]
+python -m exohunt.cli --target "TIC 261136679" --interactive-html --interactive-max-points 200000
+```
+
+Plot only a selected timeline window (BJD-2450000):
+
+```bash
+python -m exohunt.cli --target "TIC 261136679" --plot-time-start 8300 --plot-time-end 8350
+```
+
 The output plot is saved as `outputs/plots/<target>_prepared.png`.

@@ -10,6 +10,7 @@ from exohunt.cache import (
     _safe_target_name,
 )
 from exohunt.pipeline import fetch_and_plot
+from exohunt.plotting import _apply_time_window, _downsample_minmax
 
 
 def test_safe_target_name():
@@ -45,6 +46,22 @@ def test_segment_prepared_cache_path():
     assert path.parent == Path("cache/segments/tic_261136679")
     assert path.name.startswith("sector_0014__idx_000__prep_")
     assert path.suffix == ".npz"
+
+
+def test_downsample_minmax_limits_points():
+    time = np.arange(1000, dtype=float)
+    flux = np.sin(time / 10.0)
+    t_ds, f_ds = _downsample_minmax(time, flux, max_points=100)
+    assert len(t_ds) <= 100
+    assert len(t_ds) == len(f_ds)
+
+
+def test_apply_time_window_filters_range():
+    time = np.asarray([8290.0, 8300.0, 8310.0, 8320.0])
+    flux = np.asarray([1.0, 2.0, 3.0, 4.0])
+    t, f = _apply_time_window(time, flux, plot_time_start=8300.0, plot_time_end=8310.0)
+    assert np.allclose(t, np.asarray([8300.0, 8310.0]))
+    assert np.allclose(f, np.asarray([2.0, 3.0]))
 
 
 class _ArrayValue:

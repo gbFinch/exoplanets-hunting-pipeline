@@ -20,7 +20,7 @@ from exohunt.cache import (
 )
 from exohunt.ingest import _extract_segments, _parse_authors, _parse_sectors
 from exohunt.models import LightCurveSegment
-from exohunt.plotting import save_raw_vs_prepared_plot
+from exohunt.plotting import save_raw_vs_prepared_plot, save_raw_vs_prepared_plot_interactive
 from exohunt.preprocess import prepare_lightcurve
 from exohunt.progress import _render_progress
 
@@ -61,6 +61,10 @@ def fetch_and_plot(
     preprocess_mode: str = "per-sector",
     sectors: str | None = None,
     authors: str | None = None,
+    interactive_html: bool = False,
+    interactive_max_points: int = 200_000,
+    plot_time_start: float | None = None,
+    plot_time_end: float | None = None,
 ) -> Path:
     started_at = perf_counter()
     selected_sectors = _parse_sectors(sectors)
@@ -286,7 +290,20 @@ def fetch_and_plot(
         lc_raw=lc,
         lc_prepared=lc_prepared,
         boundaries=boundaries,
+        plot_time_start=plot_time_start,
+        plot_time_end=plot_time_end,
     )
+    interactive_path = None
+    if interactive_html:
+        interactive_path = save_raw_vs_prepared_plot_interactive(
+            target=target,
+            lc_raw=lc,
+            lc_prepared=lc_prepared,
+            boundaries=boundaries,
+            max_points=interactive_max_points,
+            plot_time_start=plot_time_start,
+            plot_time_end=plot_time_end,
+        )
     LOGGER.info("Plot complete in %.2fs", perf_counter() - step_started)
 
     LOGGER.info("--------------------------------")
@@ -306,8 +323,14 @@ def fetch_and_plot(
     LOGGER.info("Max download files: %s", max_download_files if max_download_files is not None else "all")
     LOGGER.info("Sector filter: %s", sectors if sectors else "all")
     LOGGER.info("Author filter: %s", authors if authors else "all")
+    LOGGER.info("Plot time start (BJD-2450000): %s", plot_time_start if plot_time_start is not None else "auto")
+    LOGGER.info("Plot time end (BJD-2450000): %s", plot_time_end if plot_time_end is not None else "auto")
+    LOGGER.info("Interactive HTML: %s", interactive_html)
+    LOGGER.info("Interactive max points: %d", interactive_max_points)
     LOGGER.info("Total runtime: %.2fs", perf_counter() - started_at)
     LOGGER.info("Saved plot: %s", output_path)
+    if interactive_path is not None:
+        LOGGER.info("Saved interactive plot: %s", interactive_path)
     LOGGER.info("--------------------------------")
 
     return output_path
