@@ -55,6 +55,9 @@ BLS transit-search core runs by default on prepared light curves (top candidates
 python -m exohunt.cli --target "TIC 261136679" --bls-period-min-days 0.5 --bls-period-max-days 20 --bls-top-n 5
 ```
 
+Each run writes ranked BLS candidate tables to `outputs/candidates/` as deterministic
+CSV/JSON files keyed by target and run configuration.
+
 Each run also writes preprocessing quality metrics to:
 - `outputs/metrics/preprocessing_summary.csv` (append-only run table)
 - `outputs/metrics/<target>_preprocessing_summary.json` (latest per-target summary)

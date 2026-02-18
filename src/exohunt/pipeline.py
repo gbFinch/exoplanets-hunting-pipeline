@@ -24,7 +24,7 @@ from exohunt.cache import (
     _segment_raw_cache_path,
     _write_segment_manifest,
 )
-from exohunt.bls import run_bls_search
+from exohunt.bls import BLSCandidate, run_bls_search
 from exohunt.ingest import _extract_segments, _parse_authors, _parse_sectors
 from exohunt.models import LightCurveSegment
 from exohunt.plotting import save_raw_vs_prepared_plot, save_raw_vs_prepared_plot_interactive
@@ -58,6 +58,17 @@ _PREPROCESSING_SUMMARY_COLUMNS = [
     "flatten_window_length",
     "no_flatten",
     *_PREPROCESSING_METRICS_COLUMNS,
+]
+
+_CANDIDATE_COLUMNS = [
+    "rank",
+    "period_days",
+    "duration_hours",
+    "depth",
+    "depth_ppm",
+    "power",
+    "transit_time",
+    "transit_count_estimate",
 ]
 
 
@@ -178,6 +189,80 @@ def _stitch_segments(lightcurves: list[lk.LightCurve]) -> tuple[lk.LightCurve, l
         raise RuntimeError("All stitched segments were empty after preprocessing.")
     stitched = lk.LightCurve(time=np.concatenate(time_parts), flux=np.concatenate(flux_parts))
     return stitched, boundaries
+
+
+def _candidate_output_key(
+    target: str,
+    preprocess_mode: str,
+    outlier_sigma: float,
+    flatten_window_length: int,
+    no_flatten: bool,
+    run_bls: bool,
+    bls_period_min_days: float,
+    bls_period_max_days: float,
+    bls_duration_min_hours: float,
+    bls_duration_max_hours: float,
+    bls_n_periods: int,
+    bls_n_durations: int,
+    bls_top_n: int,
+    sectors: str | None,
+    authors: str | None,
+    n_points_prepared: int,
+    time_min: float,
+    time_max: float,
+) -> str:
+    payload = {
+        "version": 1,
+        "target": target,
+        "preprocess_mode": preprocess_mode,
+        "outlier_sigma": round(float(outlier_sigma), 6),
+        "flatten_window_length": int(flatten_window_length),
+        "no_flatten": bool(no_flatten),
+        "run_bls": bool(run_bls),
+        "bls_period_min_days": round(float(bls_period_min_days), 6),
+        "bls_period_max_days": round(float(bls_period_max_days), 6),
+        "bls_duration_min_hours": round(float(bls_duration_min_hours), 6),
+        "bls_duration_max_hours": round(float(bls_duration_max_hours), 6),
+        "bls_n_periods": int(bls_n_periods),
+        "bls_n_durations": int(bls_n_durations),
+        "bls_top_n": int(bls_top_n),
+        "sectors": sectors or "",
+        "authors": authors or "",
+        "n_points_prepared": int(n_points_prepared),
+        "time_min": round(float(time_min), 7),
+        "time_max": round(float(time_max), 7),
+    }
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha1(encoded).hexdigest()[:12]
+
+
+def _write_bls_candidates(
+    target: str,
+    output_key: str,
+    metadata: dict[str, str | int | float | bool],
+    candidates: list[BLSCandidate],
+) -> tuple[Path, Path]:
+    output_dir = Path("outputs/candidates")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    base_name = f"{_safe_target_name(target)}__bls_{output_key}"
+    csv_path = output_dir / f"{base_name}.csv"
+    json_path = output_dir / f"{base_name}.json"
+
+    csv_columns = list(metadata.keys()) + _CANDIDATE_COLUMNS
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=csv_columns)
+        writer.writeheader()
+        for candidate in candidates:
+            row = dict(metadata)
+            row.update(asdict(candidate))
+            writer.writerow(row)
+
+    payload = {
+        "metadata": metadata,
+        "candidates": [asdict(candidate) for candidate in candidates],
+    }
+    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return csv_path, json_path
 
 
 def fetch_and_plot(
@@ -497,6 +582,57 @@ def fetch_and_plot(
     else:
         LOGGER.info("Step 5/6: skipping BLS transit search (--no-bls)")
 
+    run_utc = datetime.now(tz=timezone.utc).isoformat()
+    candidate_output_key = _candidate_output_key(
+        target=target,
+        preprocess_mode=preprocess_mode,
+        outlier_sigma=outlier_sigma,
+        flatten_window_length=flatten_window_length,
+        no_flatten=no_flatten,
+        run_bls=run_bls,
+        bls_period_min_days=bls_period_min_days,
+        bls_period_max_days=bls_period_max_days,
+        bls_duration_min_hours=bls_duration_min_hours,
+        bls_duration_max_hours=bls_duration_max_hours,
+        bls_n_periods=bls_n_periods,
+        bls_n_durations=bls_n_durations,
+        bls_top_n=bls_top_n,
+        sectors=sectors,
+        authors=authors,
+        n_points_prepared=n_points_prepared,
+        time_min=time_min,
+        time_max=time_max,
+    )
+    candidate_metadata: dict[str, str | int | float | bool] = {
+        "run_utc": run_utc,
+        "target": target,
+        "preprocess_mode": preprocess_mode,
+        "data_source": data_source,
+        "outlier_sigma": float(outlier_sigma),
+        "flatten_window_length": int(flatten_window_length),
+        "no_flatten": bool(no_flatten),
+        "sectors": sectors if sectors else "all",
+        "authors": authors if authors else "all",
+        "n_points_raw": int(n_points_raw),
+        "n_points_prepared": int(n_points_prepared),
+        "time_min_btjd": float(time_min),
+        "time_max_btjd": float(time_max),
+        "bls_enabled": bool(run_bls),
+        "bls_period_min_days": float(bls_period_min_days),
+        "bls_period_max_days": float(bls_period_max_days),
+        "bls_duration_min_hours": float(bls_duration_min_hours),
+        "bls_duration_max_hours": float(bls_duration_max_hours),
+        "bls_n_periods": int(bls_n_periods),
+        "bls_n_durations": int(bls_n_durations),
+        "bls_top_n": int(bls_top_n),
+    }
+    candidate_csv_path, candidate_json_path = _write_bls_candidates(
+        target=target,
+        output_key=candidate_output_key,
+        metadata=candidate_metadata,
+        candidates=bls_candidates,
+    )
+
     should_generate_plot = plot_time_start is not None or plot_time_end is not None
     output_path = None
     interactive_path = None
@@ -602,6 +738,8 @@ def fetch_and_plot(
     LOGGER.info("Saved preprocessing metrics CSV: %s", metrics_csv_path)
     LOGGER.info("Saved preprocessing metrics JSON: %s", metrics_json_path)
     LOGGER.info("Metrics cache file: %s", metrics_cache_path)
+    LOGGER.info("Saved BLS candidates CSV: %s", candidate_csv_path)
+    LOGGER.info("Saved BLS candidates JSON: %s", candidate_json_path)
     LOGGER.info("--------------------------------")
 
     return output_path

@@ -55,10 +55,11 @@ Important note: "When implementing the step explain the theory behind the milest
 - Exit criteria: BLS module returns ranked candidates for a target without manual intervention.
 - Implemented in `src/exohunt/bls.py` and integrated into `src/exohunt/pipeline.py`.
 
-10. [Pending] [Engineering] Persist candidate tables
+10. [Done] [Engineering] Persist candidate tables
 - Write ranked BLS candidates to CSV/JSON under `outputs/candidates/`.
 - Include preprocessing parameters and run metadata in outputs.
 - Exit criteria: each run writes structured candidate files reproducibly.
+- Implemented in `src/exohunt/pipeline.py` via `_write_bls_candidates()`.
 
 11. [Pending] [Validation] Add candidate diagnostic products
 - Save periodograms for top detections.

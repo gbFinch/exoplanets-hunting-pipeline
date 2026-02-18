@@ -6,7 +6,7 @@ import numpy as np
 
 from exohunt import comparison
 from exohunt import pipeline
-from exohunt.bls import run_bls_search
+from exohunt.bls import BLSCandidate, run_bls_search
 from exohunt.cache import (
     _cache_path,
     _prepared_cache_path,
@@ -396,3 +396,60 @@ def test_run_bls_search_detects_injected_period():
 def test_run_bls_search_short_series_returns_empty():
     lc = _BLSLC(time=np.asarray([1.0, 2.0, 3.0]), flux=np.asarray([1.0, 1.0, 1.0]))
     assert run_bls_search(lc_prepared=lc) == []
+
+
+def test_write_bls_candidates_outputs_structured_files(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    candidates = [
+        BLSCandidate(
+            rank=1,
+            period_days=3.2,
+            duration_hours=2.5,
+            depth=1.2e-4,
+            depth_ppm=120.0,
+            power=0.03,
+            transit_time=100.0,
+            transit_count_estimate=25.0,
+        )
+    ]
+    metadata = {
+        "run_utc": "2026-02-18T00:00:00+00:00",
+        "target": "TIC 1",
+        "preprocess_mode": "per-sector",
+        "data_source": "segment-cache",
+        "outlier_sigma": 5.0,
+        "flatten_window_length": 401,
+        "no_flatten": False,
+        "sectors": "all",
+        "authors": "SPOC",
+        "n_points_raw": 1000,
+        "n_points_prepared": 990,
+        "time_min_btjd": 0.0,
+        "time_max_btjd": 30.0,
+        "bls_enabled": True,
+        "bls_period_min_days": 0.5,
+        "bls_period_max_days": 20.0,
+        "bls_duration_min_hours": 0.5,
+        "bls_duration_max_hours": 10.0,
+        "bls_n_periods": 2000,
+        "bls_n_durations": 12,
+        "bls_top_n": 5,
+    }
+
+    csv_path, json_path = pipeline._write_bls_candidates(
+        target="TIC 1",
+        output_key="abc123",
+        metadata=metadata,
+        candidates=candidates,
+    )
+
+    assert csv_path.exists()
+    assert json_path.exists()
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    assert len(rows) == 1
+    assert float(rows[0]["period_days"]) == 3.2
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["metadata"]["target"] == "TIC 1"
+    assert payload["candidates"][0]["rank"] == 1
