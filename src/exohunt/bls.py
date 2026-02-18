@@ -128,3 +128,101 @@ def run_bls_search(
         if len(picked) >= max(1, int(top_n)):
             break
     return picked
+
+
+def compute_bls_periodogram(
+    lc_prepared: lk.LightCurve,
+    period_min_days: float = 0.5,
+    period_max_days: float = 20.0,
+    duration_min_hours: float = 0.5,
+    duration_max_hours: float = 10.0,
+    n_periods: int = 2000,
+    n_durations: int = 12,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute BLS periodogram (period grid and power) for diagnostics."""
+    time = np.asarray(lc_prepared.time.value, dtype=float)
+    flux = np.asarray(lc_prepared.flux.value, dtype=float)
+    finite = np.isfinite(time) & np.isfinite(flux)
+    time = time[finite]
+    flux = flux[finite]
+    if len(time) < 50:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+    order = np.argsort(time)
+    time = time[order]
+    flux = flux[order]
+
+    span_days = float(np.nanmax(time) - np.nanmin(time))
+    if not np.isfinite(span_days) or span_days <= 0:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+
+    p_min = max(0.05, float(period_min_days))
+    p_max_limit = max(p_min * 1.05, span_days * 0.95)
+    p_max = min(float(period_max_days), p_max_limit)
+    if p_max <= p_min:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+
+    periods = np.geomspace(p_min, p_max, num=max(200, int(n_periods)))
+    durations = _duration_grid_days(
+        min_hours=duration_min_hours,
+        max_hours=duration_max_hours,
+        n_durations=n_durations,
+    )
+    durations = durations[durations < 0.25 * p_max]
+    if len(durations) == 0:
+        durations = np.asarray([min(0.1, 0.1 * p_max)], dtype=float)
+
+    model = BoxLeastSquares(time, flux)
+    result = model.power(periods, durations)
+    return np.asarray(result.period, dtype=float), np.asarray(result.power, dtype=float)
+
+
+def refine_bls_candidates(
+    lc_prepared: lk.LightCurve,
+    candidates: list[BLSCandidate],
+    period_min_days: float,
+    period_max_days: float,
+    duration_min_hours: float,
+    duration_max_hours: float,
+    n_periods: int = 12000,
+    n_durations: int = 20,
+    window_fraction: float = 0.02,
+) -> list[BLSCandidate]:
+    """Refine top BLS candidates by dense local re-search around each period."""
+    if not candidates:
+        return []
+    refined: list[BLSCandidate] = []
+    for candidate in candidates:
+        window = max(1e-4, candidate.period_days * float(window_fraction))
+        local_min = max(float(period_min_days), candidate.period_days - window)
+        local_max = min(float(period_max_days), candidate.period_days + window)
+        if local_max <= local_min:
+            refined.append(candidate)
+            continue
+        local = run_bls_search(
+            lc_prepared=lc_prepared,
+            period_min_days=local_min,
+            period_max_days=local_max,
+            duration_min_hours=duration_min_hours,
+            duration_max_hours=duration_max_hours,
+            n_periods=max(int(n_periods), 400),
+            n_durations=max(int(n_durations), 6),
+            top_n=1,
+            unique_period_separation_fraction=0.0,
+        )
+        if local:
+            best = local[0]
+            refined.append(
+                BLSCandidate(
+                    rank=candidate.rank,
+                    period_days=best.period_days,
+                    duration_hours=best.duration_hours,
+                    depth=best.depth,
+                    depth_ppm=best.depth_ppm,
+                    power=best.power,
+                    transit_time=best.transit_time,
+                    transit_count_estimate=best.transit_count_estimate,
+                )
+            )
+        else:
+            refined.append(candidate)
+    return refined

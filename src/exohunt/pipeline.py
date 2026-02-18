@@ -24,10 +24,19 @@ from exohunt.cache import (
     _segment_raw_cache_path,
     _write_segment_manifest,
 )
-from exohunt.bls import BLSCandidate, run_bls_search
+from exohunt.bls import (
+    BLSCandidate,
+    compute_bls_periodogram,
+    refine_bls_candidates,
+    run_bls_search,
+)
 from exohunt.ingest import _extract_segments, _parse_authors, _parse_sectors
 from exohunt.models import LightCurveSegment
-from exohunt.plotting import save_raw_vs_prepared_plot, save_raw_vs_prepared_plot_interactive
+from exohunt.plotting import (
+    save_candidate_diagnostics,
+    save_raw_vs_prepared_plot,
+    save_raw_vs_prepared_plot_interactive,
+)
 from exohunt.preprocess import compute_preprocessing_quality_metrics, prepare_lightcurve
 from exohunt.progress import _render_progress
 
@@ -280,6 +289,7 @@ def fetch_and_plot(
     interactive_max_points: int = 200_000,
     plot_time_start: float | None = None,
     plot_time_end: float | None = None,
+    plot_sectors: str | None = None,
     run_bls: bool = True,
     bls_period_min_days: float = 0.5,
     bls_period_max_days: float = 20.0,
@@ -288,12 +298,17 @@ def fetch_and_plot(
     bls_n_periods: int = 2000,
     bls_n_durations: int = 12,
     bls_top_n: int = 5,
+    bls_mode: str = "stitched",
 ) -> Path | None:
     started_at = perf_counter()
     selected_sectors = _parse_sectors(sectors)
     selected_authors = _parse_authors(authors)
+    selected_plot_sectors = _parse_sectors(plot_sectors)
     boundaries: list[float] = []
     data_source = "download"
+    prepared_segments_for_bls: list[LightCurveSegment] = []
+    raw_segments_for_plot: list[LightCurveSegment] = []
+    prepared_segments_for_plot: list[LightCurveSegment] = []
 
     if preprocess_mode == "global":
         raw_cache_path = _cache_path(target, cache_dir)
@@ -344,7 +359,7 @@ def fetch_and_plot(
         if lc is None and lc_prepared is None:
             LOGGER.info("Step 2/5: searching TESS products")
             step_started = perf_counter()
-            search = lk.search_lightcurve(target, mission="TESS", author="SPOC")
+            search = lk.search_lightcurve(target, mission="TESS", author="SPOC", exptime=120)
             LOGGER.info(
                 "Search complete in %.2fs (%d entries)", perf_counter() - step_started, len(search)
             )
@@ -434,7 +449,7 @@ def fetch_and_plot(
         if not raw_segments:
             LOGGER.info("Step 2/5: searching TESS products")
             step_started = perf_counter()
-            search = lk.search_lightcurve(target, mission="TESS", author="SPOC")
+            search = lk.search_lightcurve(target, mission="TESS", author="SPOC", exptime=120)
             LOGGER.info(
                 "Search complete in %.2fs (%d entries)", perf_counter() - step_started, len(search)
             )
@@ -515,6 +530,9 @@ def fetch_and_plot(
 
         lc, boundaries = _stitch_segments([segment.lc for segment in raw_segments])
         lc_prepared, _ = _stitch_segments([segment.lc for segment in prepared_segments])
+        prepared_segments_for_bls = list(prepared_segments)
+        raw_segments_for_plot = list(raw_segments)
+        prepared_segments_for_plot = list(prepared_segments)
 
         raw_cache_path = _segment_base_dir(target, cache_dir)
         prepared_cache_path = _segment_base_dir(target, cache_dir)
@@ -560,99 +578,295 @@ def fetch_and_plot(
     )
 
     bls_candidates = []
-    if run_bls:
-        LOGGER.info("Step 5/6: running BLS transit search")
-        step_started = perf_counter()
-        bls_candidates = run_bls_search(
-            lc_prepared=lc_prepared,
-            period_min_days=bls_period_min_days,
-            period_max_days=bls_period_max_days,
-            duration_min_hours=bls_duration_min_hours,
-            duration_max_hours=bls_duration_max_hours,
-            n_periods=bls_n_periods,
-            n_durations=bls_n_durations,
-            top_n=bls_top_n,
-        )
-        LOGGER.info(
-            "BLS complete in %.2fs (%d candidate%s)",
-            perf_counter() - step_started,
-            len(bls_candidates),
-            "" if len(bls_candidates) == 1 else "s",
-        )
-    else:
-        LOGGER.info("Step 5/6: skipping BLS transit search (--no-bls)")
-
+    candidate_csv_paths: list[Path] = []
+    candidate_json_paths: list[Path] = []
+    diagnostic_assets: list[tuple[Path, Path]] = []
     run_utc = datetime.now(tz=timezone.utc).isoformat()
-    candidate_output_key = _candidate_output_key(
-        target=target,
-        preprocess_mode=preprocess_mode,
-        outlier_sigma=outlier_sigma,
-        flatten_window_length=flatten_window_length,
-        no_flatten=no_flatten,
-        run_bls=run_bls,
-        bls_period_min_days=bls_period_min_days,
-        bls_period_max_days=bls_period_max_days,
-        bls_duration_min_hours=bls_duration_min_hours,
-        bls_duration_max_hours=bls_duration_max_hours,
-        bls_n_periods=bls_n_periods,
-        bls_n_durations=bls_n_durations,
-        bls_top_n=bls_top_n,
-        sectors=sectors,
-        authors=authors,
-        n_points_prepared=n_points_prepared,
-        time_min=time_min,
-        time_max=time_max,
-    )
-    candidate_metadata: dict[str, str | int | float | bool] = {
-        "run_utc": run_utc,
-        "target": target,
-        "preprocess_mode": preprocess_mode,
-        "data_source": data_source,
-        "outlier_sigma": float(outlier_sigma),
-        "flatten_window_length": int(flatten_window_length),
-        "no_flatten": bool(no_flatten),
-        "sectors": sectors if sectors else "all",
-        "authors": authors if authors else "all",
-        "n_points_raw": int(n_points_raw),
-        "n_points_prepared": int(n_points_prepared),
-        "time_min_btjd": float(time_min),
-        "time_max_btjd": float(time_max),
-        "bls_enabled": bool(run_bls),
-        "bls_period_min_days": float(bls_period_min_days),
-        "bls_period_max_days": float(bls_period_max_days),
-        "bls_duration_min_hours": float(bls_duration_min_hours),
-        "bls_duration_max_hours": float(bls_duration_max_hours),
-        "bls_n_periods": int(bls_n_periods),
-        "bls_n_durations": int(bls_n_durations),
-        "bls_top_n": int(bls_top_n),
-    }
-    candidate_csv_path, candidate_json_path = _write_bls_candidates(
-        target=target,
-        output_key=candidate_output_key,
-        metadata=candidate_metadata,
-        candidates=bls_candidates,
-    )
+    if run_bls:
+        LOGGER.info("Step 5/7: running BLS transit search")
+        step_started = perf_counter()
+        if bls_mode == "per-sector" and prepared_segments_for_bls:
+            total_candidates = 0
+            for segment in prepared_segments_for_bls:
+                segment_candidates = run_bls_search(
+                    lc_prepared=segment.lc,
+                    period_min_days=bls_period_min_days,
+                    period_max_days=bls_period_max_days,
+                    duration_min_hours=bls_duration_min_hours,
+                    duration_max_hours=bls_duration_max_hours,
+                    n_periods=bls_n_periods,
+                    n_durations=bls_n_durations,
+                    top_n=bls_top_n,
+                )
+                total_candidates += len(segment_candidates)
+                segment_time = np.asarray(segment.lc.time.value, dtype=float)
+                finite_segment_time = segment_time[np.isfinite(segment_time)]
+                if len(finite_segment_time):
+                    seg_t_min = float(np.nanmin(finite_segment_time))
+                    seg_t_max = float(np.nanmax(finite_segment_time))
+                else:
+                    seg_t_min = float("nan")
+                    seg_t_max = float("nan")
+                segment_metadata = {
+                    "run_utc": run_utc,
+                    "target": target,
+                    "segment_id": segment.segment_id,
+                    "sector": int(segment.sector),
+                    "author": segment.author,
+                    "cadence_days": float(segment.cadence),
+                    "preprocess_mode": preprocess_mode,
+                    "data_source": data_source,
+                    "outlier_sigma": float(outlier_sigma),
+                    "flatten_window_length": int(flatten_window_length),
+                    "no_flatten": bool(no_flatten),
+                    "sectors": sectors if sectors else "all",
+                    "authors": authors if authors else "all",
+                    "n_points_raw": int(n_points_raw),
+                    "n_points_prepared": int(len(segment.lc.time.value)),
+                    "time_min_btjd": seg_t_min,
+                    "time_max_btjd": seg_t_max,
+                    "bls_enabled": True,
+                    "bls_mode": bls_mode,
+                    "bls_period_min_days": float(bls_period_min_days),
+                    "bls_period_max_days": float(bls_period_max_days),
+                    "bls_duration_min_hours": float(bls_duration_min_hours),
+                    "bls_duration_max_hours": float(bls_duration_max_hours),
+                    "bls_n_periods": int(bls_n_periods),
+                    "bls_n_durations": int(bls_n_durations),
+                    "bls_top_n": int(bls_top_n),
+                }
+                segment_key = _candidate_output_key(
+                    target=target,
+                    preprocess_mode=preprocess_mode,
+                    outlier_sigma=outlier_sigma,
+                    flatten_window_length=flatten_window_length,
+                    no_flatten=no_flatten,
+                    run_bls=run_bls,
+                    bls_period_min_days=bls_period_min_days,
+                    bls_period_max_days=bls_period_max_days,
+                    bls_duration_min_hours=bls_duration_min_hours,
+                    bls_duration_max_hours=bls_duration_max_hours,
+                    bls_n_periods=bls_n_periods,
+                    bls_n_durations=bls_n_durations,
+                    bls_top_n=bls_top_n,
+                    sectors=str(segment.sector),
+                    authors=segment.author,
+                    n_points_prepared=len(segment.lc.time.value),
+                    time_min=seg_t_min if np.isfinite(seg_t_min) else 0.0,
+                    time_max=seg_t_max if np.isfinite(seg_t_max) else 0.0,
+                )
+                csv_path, json_path = _write_bls_candidates(
+                    target=target,
+                    output_key=f"{segment.segment_id}_{segment_key}",
+                    metadata=segment_metadata,
+                    candidates=segment_candidates,
+                )
+                candidate_csv_paths.append(csv_path)
+                candidate_json_paths.append(json_path)
 
-    should_generate_plot = plot_time_start is not None or plot_time_end is not None
+                if segment_candidates:
+                    period_grid_days, period_power = compute_bls_periodogram(
+                        lc_prepared=segment.lc,
+                        period_min_days=bls_period_min_days,
+                        period_max_days=bls_period_max_days,
+                        duration_min_hours=bls_duration_min_hours,
+                        duration_max_hours=bls_duration_max_hours,
+                        n_periods=bls_n_periods,
+                        n_durations=bls_n_durations,
+                    )
+                    diagnostic_assets.extend(
+                        save_candidate_diagnostics(
+                            target=target,
+                            output_key=f"{segment.segment_id}_{segment_key}",
+                            lc_prepared=segment.lc,
+                            candidates=segment_candidates,
+                            period_grid_days=period_grid_days,
+                            power_grid=period_power,
+                        )
+                    )
+
+            LOGGER.info(
+                "BLS complete in %.2fs (%d segment candidate%s)",
+                perf_counter() - step_started,
+                total_candidates,
+                "" if total_candidates == 1 else "s",
+            )
+        else:
+            if bls_mode == "per-sector" and not prepared_segments_for_bls:
+                LOGGER.warning(
+                    "BLS mode 'per-sector' requested but no prepared segments are available; falling back to stitched."
+                )
+            bls_candidates = run_bls_search(
+                lc_prepared=lc_prepared,
+                period_min_days=bls_period_min_days,
+                period_max_days=bls_period_max_days,
+                duration_min_hours=bls_duration_min_hours,
+                duration_max_hours=bls_duration_max_hours,
+                n_periods=bls_n_periods,
+                n_durations=bls_n_durations,
+                top_n=bls_top_n,
+            )
+            if bls_candidates:
+                refined_candidates = refine_bls_candidates(
+                    lc_prepared=lc_prepared,
+                    candidates=bls_candidates,
+                    period_min_days=bls_period_min_days,
+                    period_max_days=bls_period_max_days,
+                    duration_min_hours=bls_duration_min_hours,
+                    duration_max_hours=bls_duration_max_hours,
+                    n_periods=max(12000, bls_n_periods * 6),
+                    n_durations=max(20, bls_n_durations),
+                    window_fraction=0.02,
+                )
+                if refined_candidates:
+                    bls_candidates = refined_candidates
+            LOGGER.info(
+                "BLS complete in %.2fs (%d candidate%s)",
+                perf_counter() - step_started,
+                len(bls_candidates),
+                "" if len(bls_candidates) == 1 else "s",
+            )
+    else:
+        LOGGER.info("Step 5/7: skipping BLS transit search (--no-bls)")
+    if bls_mode != "per-sector" or not prepared_segments_for_bls:
+        candidate_output_key = _candidate_output_key(
+            target=target,
+            preprocess_mode=preprocess_mode,
+            outlier_sigma=outlier_sigma,
+            flatten_window_length=flatten_window_length,
+            no_flatten=no_flatten,
+            run_bls=run_bls,
+            bls_period_min_days=bls_period_min_days,
+            bls_period_max_days=bls_period_max_days,
+            bls_duration_min_hours=bls_duration_min_hours,
+            bls_duration_max_hours=bls_duration_max_hours,
+            bls_n_periods=bls_n_periods,
+            bls_n_durations=bls_n_durations,
+            bls_top_n=bls_top_n,
+            sectors=sectors,
+            authors=authors,
+            n_points_prepared=n_points_prepared,
+            time_min=time_min,
+            time_max=time_max,
+        )
+        candidate_metadata: dict[str, str | int | float | bool] = {
+            "run_utc": run_utc,
+            "target": target,
+            "preprocess_mode": preprocess_mode,
+            "data_source": data_source,
+            "outlier_sigma": float(outlier_sigma),
+            "flatten_window_length": int(flatten_window_length),
+            "no_flatten": bool(no_flatten),
+            "sectors": sectors if sectors else "all",
+            "authors": authors if authors else "all",
+            "n_points_raw": int(n_points_raw),
+            "n_points_prepared": int(n_points_prepared),
+            "time_min_btjd": float(time_min),
+            "time_max_btjd": float(time_max),
+            "bls_enabled": bool(run_bls),
+            "bls_mode": bls_mode,
+            "bls_period_min_days": float(bls_period_min_days),
+            "bls_period_max_days": float(bls_period_max_days),
+            "bls_duration_min_hours": float(bls_duration_min_hours),
+            "bls_duration_max_hours": float(bls_duration_max_hours),
+            "bls_n_periods": int(bls_n_periods),
+            "bls_n_durations": int(bls_n_durations),
+            "bls_top_n": int(bls_top_n),
+            "bls_refined_local": bool(run_bls and bls_mode == "stitched"),
+        }
+        candidate_csv_path, candidate_json_path = _write_bls_candidates(
+            target=target,
+            output_key=candidate_output_key,
+            metadata=candidate_metadata,
+            candidates=bls_candidates,
+        )
+        candidate_csv_paths.append(candidate_csv_path)
+        candidate_json_paths.append(candidate_json_path)
+
+        if run_bls and bls_candidates:
+            LOGGER.info("Step 6/7: generating candidate diagnostics")
+            step_started = perf_counter()
+            period_grid_days, period_power = compute_bls_periodogram(
+                lc_prepared=lc_prepared,
+                period_min_days=bls_period_min_days,
+                period_max_days=bls_period_max_days,
+                duration_min_hours=bls_duration_min_hours,
+                duration_max_hours=bls_duration_max_hours,
+                n_periods=bls_n_periods,
+                n_durations=bls_n_durations,
+            )
+            diagnostic_assets = save_candidate_diagnostics(
+                target=target,
+                output_key=candidate_output_key,
+                lc_prepared=lc_prepared,
+                candidates=bls_candidates,
+                period_grid_days=period_grid_days,
+                power_grid=period_power,
+            )
+            LOGGER.info(
+                "Candidate diagnostics complete in %.2fs (%d candidate asset set%s)",
+                perf_counter() - step_started,
+                len(diagnostic_assets),
+                "" if len(diagnostic_assets) == 1 else "s",
+            )
+        elif run_bls:
+            LOGGER.info("Step 6/7: skipping candidate diagnostics (no BLS candidates)")
+        else:
+            LOGGER.info("Step 6/7: skipping candidate diagnostics (BLS disabled)")
+    else:
+        LOGGER.info("Step 6/7: diagnostics generated per sector during BLS step")
+
+    should_generate_plot = (
+        plot_time_start is not None
+        or plot_time_end is not None
+        or selected_plot_sectors is not None
+    )
     output_path = None
     interactive_path = None
     if should_generate_plot:
-        LOGGER.info("Step 6/6: generating plot")
+        plot_lc_raw = lc
+        plot_lc_prepared = lc_prepared
+        plot_boundaries = boundaries
+        if selected_plot_sectors is not None:
+            if preprocess_mode != "per-sector":
+                raise RuntimeError(
+                    "--plot-sectors requires --preprocess-mode per-sector (segment metadata needed)."
+                )
+            selected_raw_segments = [
+                segment
+                for segment in raw_segments_for_plot
+                if int(segment.sector) in selected_plot_sectors
+            ]
+            selected_prepared_segments = [
+                segment
+                for segment in prepared_segments_for_plot
+                if int(segment.sector) in selected_plot_sectors
+            ]
+            if not selected_raw_segments or not selected_prepared_segments:
+                raise RuntimeError(
+                    f"No cached segments match --plot-sectors={plot_sectors} for target {target}."
+                )
+            plot_lc_raw, plot_boundaries = _stitch_segments(
+                [seg.lc for seg in selected_raw_segments]
+            )
+            plot_lc_prepared, _ = _stitch_segments([seg.lc for seg in selected_prepared_segments])
+
+        LOGGER.info("Step 7/7: generating plot")
         step_started = perf_counter()
         output_path = save_raw_vs_prepared_plot(
             target=target,
-            lc_raw=lc,
-            lc_prepared=lc_prepared,
-            boundaries=boundaries,
+            lc_raw=plot_lc_raw,
+            lc_prepared=plot_lc_prepared,
+            boundaries=plot_boundaries,
             plot_time_start=plot_time_start,
             plot_time_end=plot_time_end,
         )
         if interactive_html:
             interactive_path = save_raw_vs_prepared_plot_interactive(
                 target=target,
-                lc_raw=lc,
-                lc_prepared=lc_prepared,
-                boundaries=boundaries,
+                lc_raw=plot_lc_raw,
+                lc_prepared=plot_lc_prepared,
+                boundaries=plot_boundaries,
                 max_points=interactive_max_points,
                 plot_time_start=plot_time_start,
                 plot_time_end=plot_time_end,
@@ -660,7 +874,7 @@ def fetch_and_plot(
         LOGGER.info("Plot complete in %.2fs", perf_counter() - step_started)
     else:
         LOGGER.info(
-            "Step 6/6: skipping plot generation (set --plot-time-start/--plot-time-end to enable)"
+            "Step 7/7: skipping plot generation (set --plot-time-start/--plot-time-end or --plot-sectors to enable)"
         )
 
     LOGGER.info("--------------------------------")
@@ -697,17 +911,17 @@ def fetch_and_plot(
     LOGGER.info("Sector filter: %s", sectors if sectors else "all")
     LOGGER.info("Author filter: %s", authors if authors else "all")
     LOGGER.info(
-        "Plot time start (BJD-2450000): %s",
+        "Plot time start (BTJD): %s",
         plot_time_start if plot_time_start is not None else "auto",
     )
-    LOGGER.info(
-        "Plot time end (BJD-2450000): %s", plot_time_end if plot_time_end is not None else "auto"
-    )
+    LOGGER.info("Plot time end (BTJD): %s", plot_time_end if plot_time_end is not None else "auto")
+    LOGGER.info("Plot sectors: %s", plot_sectors if plot_sectors else "all")
     LOGGER.info("Interactive HTML: %s", interactive_html)
     LOGGER.info("Interactive max points: %d", interactive_max_points)
     LOGGER.info(
-        "BLS settings: enabled=%s period=[%.2f, %.2f]d duration=[%.2f, %.2f]h n_periods=%d n_durations=%d top_n=%d",
+        "BLS settings: enabled=%s mode=%s period=[%.2f, %.2f]d duration=[%.2f, %.2f]h n_periods=%d n_durations=%d top_n=%d",
         run_bls,
+        bls_mode,
         bls_period_min_days,
         bls_period_max_days,
         bls_duration_min_hours,
@@ -738,8 +952,16 @@ def fetch_and_plot(
     LOGGER.info("Saved preprocessing metrics CSV: %s", metrics_csv_path)
     LOGGER.info("Saved preprocessing metrics JSON: %s", metrics_json_path)
     LOGGER.info("Metrics cache file: %s", metrics_cache_path)
-    LOGGER.info("Saved BLS candidates CSV: %s", candidate_csv_path)
-    LOGGER.info("Saved BLS candidates JSON: %s", candidate_json_path)
+    LOGGER.info("Saved BLS candidate CSV files: %d", len(candidate_csv_paths))
+    for path in candidate_csv_paths:
+        LOGGER.info("  - %s", path)
+    LOGGER.info("Saved BLS candidate JSON files: %d", len(candidate_json_paths))
+    for path in candidate_json_paths:
+        LOGGER.info("  - %s", path)
+    LOGGER.info("Candidate diagnostic asset sets: %d", len(diagnostic_assets))
+    for periodogram_path, phasefold_path in diagnostic_assets:
+        LOGGER.info("  - Saved periodogram: %s", periodogram_path)
+        LOGGER.info("  - Saved phase-folded plot: %s", phasefold_path)
     LOGGER.info("--------------------------------")
 
     return output_path

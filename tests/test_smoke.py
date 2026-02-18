@@ -6,7 +6,7 @@ import numpy as np
 
 from exohunt import comparison
 from exohunt import pipeline
-from exohunt.bls import BLSCandidate, run_bls_search
+from exohunt.bls import BLSCandidate, refine_bls_candidates, run_bls_search
 from exohunt.cache import (
     _cache_path,
     _prepared_cache_path,
@@ -14,7 +14,7 @@ from exohunt.cache import (
     _safe_target_name,
 )
 from exohunt.pipeline import fetch_and_plot
-from exohunt.plotting import _apply_time_window, _downsample_minmax
+from exohunt.plotting import _apply_time_window, _downsample_minmax, save_candidate_diagnostics
 from exohunt.preprocess import compute_preprocessing_quality_metrics
 
 
@@ -80,10 +80,15 @@ class _SimpleLC:
 
 
 class _FakeLightCurve:
-    def __init__(self):
+    def __init__(self, sector=14, author="SPOC"):
         self.time = _ArrayValue([1.0, 2.0, 3.0])
         self.flux = _ArrayValue([0.99, 1.01, 1.00])
-        self.meta = {"origin": "test", "SECTOR": 14, "AUTHOR": "SPOC", "TIMEDEL": 0.0013888}
+        self.meta = {
+            "origin": "test",
+            "SECTOR": sector,
+            "AUTHOR": author,
+            "TIMEDEL": 0.0013888,
+        }
 
     def remove_nans(self):
         return self
@@ -174,10 +179,11 @@ def test_fetch_and_plot_downloads_and_caches(monkeypatch, tmp_path):
             assert quality_bitmask == "default"
             return _FakeLCCollection()
 
-    def _fake_search(target_arg, mission, author=None):
+    def _fake_search(target_arg, mission, author=None, **kwargs):
         assert target_arg == target
         assert mission == "TESS"
         assert author in (None, "SPOC")
+        assert kwargs.get("exptime", 120) == 120
         return _FakeSearchResult()
 
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _fake_search)
@@ -189,6 +195,106 @@ def test_fetch_and_plot_downloads_and_caches(monkeypatch, tmp_path):
     assert segment_root.exists()
     assert (tmp_path / "outputs/metrics/preprocessing_summary.csv").exists()
     assert (tmp_path / "outputs/metrics/tic_261136679_preprocessing_summary.json").exists()
+
+
+def test_fetch_and_plot_runs_bls_per_sector(monkeypatch, tmp_path):
+    target = "TIC 261136679"
+    cache_dir = tmp_path / "cache"
+    lc1 = _FakeLightCurve(sector=14)
+    lc2 = _FakeLightCurve(sector=15)
+
+    class _FakeLCCollection:
+        def __init__(self):
+            self.items = [lc1, lc2]
+
+        def __len__(self):
+            return len(self.items)
+
+        def stitch(self):
+            return lc1
+
+        def __iter__(self):
+            return iter(self.items)
+
+    class _FakeSearchResult:
+        def __len__(self):
+            return 2
+
+        def download_all(self, quality_bitmask):
+            assert quality_bitmask == "default"
+            return _FakeLCCollection()
+
+    def _fake_search(target_arg, mission, author=None, **kwargs):
+        assert target_arg == target
+        assert mission == "TESS"
+        assert author in (None, "SPOC")
+        assert kwargs.get("exptime", 120) == 120
+        return _FakeSearchResult()
+
+    call_count = {"n": 0}
+
+    def _fake_bls_search(**kwargs):
+        call_count["n"] += 1
+        return []
+
+    monkeypatch.setattr(pipeline.lk, "search_lightcurve", _fake_search)
+    monkeypatch.setattr(pipeline, "run_bls_search", _fake_bls_search)
+    monkeypatch.chdir(tmp_path)
+
+    fetch_and_plot(
+        target,
+        cache_dir=cache_dir,
+        preprocess_mode="per-sector",
+        bls_mode="per-sector",
+    )
+    assert call_count["n"] == 2
+
+
+def test_fetch_and_plot_generates_plot_for_plot_sectors(monkeypatch, tmp_path):
+    target = "TIC 261136679"
+    cache_dir = tmp_path / "cache"
+    lc1 = _FakeLightCurve(sector=14)
+    lc2 = _FakeLightCurve(sector=15)
+
+    class _FakeLCCollection:
+        def __init__(self):
+            self.items = [lc1, lc2]
+
+        def __len__(self):
+            return len(self.items)
+
+        def stitch(self):
+            return lc1
+
+        def __iter__(self):
+            return iter(self.items)
+
+    class _FakeSearchResult:
+        def __len__(self):
+            return 2
+
+        def download_all(self, quality_bitmask):
+            assert quality_bitmask == "default"
+            return _FakeLCCollection()
+
+    def _fake_search(target_arg, mission, author=None, **kwargs):
+        assert target_arg == target
+        assert mission == "TESS"
+        assert author in (None, "SPOC")
+        assert kwargs.get("exptime", 120) == 120
+        return _FakeSearchResult()
+
+    monkeypatch.setattr(pipeline.lk, "search_lightcurve", _fake_search)
+    monkeypatch.chdir(tmp_path)
+
+    output_path = fetch_and_plot(
+        target,
+        cache_dir=cache_dir,
+        preprocess_mode="per-sector",
+        plot_sectors="14",
+    )
+    assert output_path is not None
+    assert output_path.exists()
 
 
 def test_compute_preprocessing_quality_metrics_improvement():
@@ -255,8 +361,8 @@ def test_fetch_and_plot_generates_plot_when_time_window_provided(monkeypatch, tm
         target,
         cache_dir=cache_dir,
         preprocess_mode="global",
-        plot_time_start=7000.0,
-        plot_time_end=7010.0,
+        plot_time_start=1.0,
+        plot_time_end=3.0,
     )
     assert output_path is not None
     assert output_path.exists()
@@ -396,6 +502,76 @@ def test_run_bls_search_detects_injected_period():
 def test_run_bls_search_short_series_returns_empty():
     lc = _BLSLC(time=np.asarray([1.0, 2.0, 3.0]), flux=np.asarray([1.0, 1.0, 1.0]))
     assert run_bls_search(lc_prepared=lc) == []
+
+
+def test_refine_bls_candidates_improves_period_estimate():
+    true_period = 3.14159
+    duration_days = 2.5 / 24.0
+    time = np.arange(0.0, 120.0, 0.02)
+    phase = np.mod(time - 0.35 * true_period, true_period)
+    in_transit = (phase < duration_days) | (phase > true_period - duration_days)
+    flux = np.ones_like(time)
+    flux[in_transit] -= 0.008
+    lc = _BLSLC(time=time, flux=flux)
+
+    coarse = run_bls_search(
+        lc_prepared=lc,
+        period_min_days=0.5,
+        period_max_days=10.0,
+        duration_min_hours=1.0,
+        duration_max_hours=6.0,
+        n_periods=250,
+        n_durations=8,
+        top_n=1,
+    )
+    assert coarse
+    coarse_err = abs(coarse[0].period_days - true_period)
+    refined = refine_bls_candidates(
+        lc_prepared=lc,
+        candidates=coarse,
+        period_min_days=0.5,
+        period_max_days=10.0,
+        duration_min_hours=1.0,
+        duration_max_hours=6.0,
+        n_periods=12000,
+        n_durations=20,
+        window_fraction=0.03,
+    )
+    assert refined
+    refined_err = abs(refined[0].period_days - true_period)
+    assert refined_err <= coarse_err
+
+
+def test_save_candidate_diagnostics_writes_assets(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    lc = _BLSLC(
+        time=np.linspace(0.0, 10.0, 1000),
+        flux=1.0 + 1e-4 * np.sin(np.linspace(0.0, 20.0 * np.pi, 1000)),
+    )
+    candidates = [
+        BLSCandidate(
+            rank=1,
+            period_days=2.5,
+            duration_hours=3.0,
+            depth=1.0e-4,
+            depth_ppm=100.0,
+            power=1.0e-3,
+            transit_time=0.2,
+            transit_count_estimate=4.0,
+        )
+    ]
+    written = save_candidate_diagnostics(
+        target="TIC 1",
+        output_key="xyz",
+        lc_prepared=lc,
+        candidates=candidates,
+        period_grid_days=np.linspace(0.5, 5.0, 300),
+        power_grid=np.linspace(0.0, 0.01, 300),
+    )
+    assert len(written) == 1
+    periodogram_path, phasefold_path = written[0]
+    assert periodogram_path.exists()
+    assert phasefold_path.exists()
 
 
 def test_write_bls_candidates_outputs_structured_files(monkeypatch, tmp_path):

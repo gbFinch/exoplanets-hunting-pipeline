@@ -61,10 +61,11 @@ Important note: "When implementing the step explain the theory behind the milest
 - Exit criteria: each run writes structured candidate files reproducibly.
 - Implemented in `src/exohunt/pipeline.py` via `_write_bls_candidates()`.
 
-11. [Pending] [Validation] Add candidate diagnostic products
+11. [Done] [Validation] Add candidate diagnostic products
 - Save periodograms for top detections.
 - Save phase-folded plots with transit-window overlays.
 - Exit criteria: top-N candidates each have periodogram and phase-folded diagnostic assets.
+- Implemented in `src/exohunt/plotting.py` + `src/exohunt/pipeline.py`.
 
 12. [Pending] [Validation] Add candidate vetting heuristics v1
 - Add odd-even depth comparison.

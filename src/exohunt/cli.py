@@ -81,13 +81,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--plot-time-start",
         type=float,
         default=None,
-        help="Optional plot x-axis start in BJD-2450000.",
+        help="Optional plot x-axis start in BTJD.",
     )
     parser.add_argument(
         "--plot-time-end",
         type=float,
         default=None,
-        help="Optional plot x-axis end in BJD-2450000.",
+        help="Optional plot x-axis end in BTJD.",
+    )
+    parser.add_argument(
+        "--plot-sectors",
+        default=None,
+        help="Optional comma-separated sectors to include in plot, e.g. '14,15' (per-sector mode).",
     )
     parser.add_argument(
         "--no-bls",
@@ -136,6 +141,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=5,
         help="Number of ranked BLS candidates to return/log.",
     )
+    parser.add_argument(
+        "--bls-mode",
+        choices=["stitched", "per-sector"],
+        default="stitched",
+        help="Run BLS on stitched prepared light curve or separately per prepared sector.",
+    )
     return parser
 
 
@@ -157,6 +168,7 @@ def main() -> int:
         interactive_max_points=args.interactive_max_points,
         plot_time_start=args.plot_time_start,
         plot_time_end=args.plot_time_end,
+        plot_sectors=args.plot_sectors,
         run_bls=not args.no_bls,
         bls_period_min_days=args.bls_period_min_days,
         bls_period_max_days=args.bls_period_max_days,
@@ -165,6 +177,7 @@ def main() -> int:
         bls_n_periods=args.bls_n_periods,
         bls_n_durations=args.bls_n_durations,
         bls_top_n=args.bls_top_n,
+        bls_mode=args.bls_mode,
     )
     return 0
 

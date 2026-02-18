@@ -6,11 +6,8 @@ import lightkurve as lk
 import matplotlib.pyplot as plt
 import numpy as np
 
+from exohunt.bls import BLSCandidate
 from exohunt.cache import _safe_target_name
-
-
-def _to_bjd_minus_2450000(btjd: np.ndarray) -> np.ndarray:
-    return btjd + 7000.0
 
 
 def _relative_flux_to_ppm(relative_flux: np.ndarray) -> np.ndarray:
@@ -155,9 +152,9 @@ def save_raw_vs_prepared_plot(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{_safe_target_name(target)}_prepared.png"
 
-    raw_time = _to_bjd_minus_2450000(np.asarray(lc_raw.time.value, dtype=float))
+    raw_time = np.asarray(lc_raw.time.value, dtype=float)
     raw_flux = np.asarray(lc_raw.flux.value, dtype=float)
-    prep_time = _to_bjd_minus_2450000(np.asarray(lc_prepared.time.value, dtype=float))
+    prep_time = np.asarray(lc_prepared.time.value, dtype=float)
     prep_flux = np.asarray(lc_prepared.flux.value, dtype=float)
     raw_time, raw_flux = _apply_time_window(raw_time, raw_flux, plot_time_start, plot_time_end)
     prep_time, prep_flux = _apply_time_window(prep_time, prep_flux, plot_time_start, plot_time_end)
@@ -188,19 +185,18 @@ def save_raw_vs_prepared_plot(
         )
         ax_prepared_new.plot(prep_x, prep_p50_s, color="#4b2e83", linewidth=1.2, alpha=0.95)
     ax_prepared_new.set_title("Prepared (New Style: density + trend band)")
-    ax_prepared_new.set_xlabel("Time [BJD - 2450000]")
+    ax_prepared_new.set_xlabel("Time [BTJD]")
     ax_prepared_new.set_ylabel("Relative Flux [ppm]")
     ax_prepared_new.set_ylim(*_robust_ylim(prep_flux_ppm))
 
     for boundary in boundaries:
-        boundary_bjd = boundary + 7000.0
-        if plot_time_start is not None and boundary_bjd < plot_time_start:
+        if plot_time_start is not None and boundary < plot_time_start:
             continue
-        if plot_time_end is not None and boundary_bjd > plot_time_end:
+        if plot_time_end is not None and boundary > plot_time_end:
             continue
-        ax_raw_old.axvline(boundary_bjd, color="gray", alpha=0.2, linewidth=0.8)
-        ax_prepared_old.axvline(boundary_bjd, color="gray", alpha=0.2, linewidth=0.8)
-        ax_prepared_new.axvline(boundary_bjd, color="gray", alpha=0.2, linewidth=0.8)
+        ax_raw_old.axvline(boundary, color="gray", alpha=0.2, linewidth=0.8)
+        ax_prepared_old.axvline(boundary, color="gray", alpha=0.2, linewidth=0.8)
+        ax_prepared_new.axvline(boundary, color="gray", alpha=0.2, linewidth=0.8)
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=150)
@@ -256,9 +252,9 @@ def save_raw_vs_prepared_plot_interactive(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{_safe_target_name(target)}_prepared.html"
 
-    raw_time = _to_bjd_minus_2450000(np.asarray(lc_raw.time.value, dtype=float))
+    raw_time = np.asarray(lc_raw.time.value, dtype=float)
     raw_flux = np.asarray(lc_raw.flux.value, dtype=float)
-    prep_time = _to_bjd_minus_2450000(np.asarray(lc_prepared.time.value, dtype=float))
+    prep_time = np.asarray(lc_prepared.time.value, dtype=float)
     prep_flux = np.asarray(lc_prepared.flux.value, dtype=float)
     raw_time, raw_flux = _apply_time_window(raw_time, raw_flux, plot_time_start, plot_time_end)
     prep_time, prep_flux = _apply_time_window(prep_time, prep_flux, plot_time_start, plot_time_end)
@@ -342,19 +338,18 @@ def save_raw_vs_prepared_plot_interactive(
         )
 
     for boundary in boundaries:
-        boundary_bjd = boundary + 7000.0
-        if plot_time_start is not None and boundary_bjd < plot_time_start:
+        if plot_time_start is not None and boundary < plot_time_start:
             continue
-        if plot_time_end is not None and boundary_bjd > plot_time_end:
+        if plot_time_end is not None and boundary > plot_time_end:
             continue
-        fig.add_vline(x=boundary_bjd, line_width=1, line_color="gray", opacity=0.25)
+        fig.add_vline(x=boundary, line_width=1, line_color="gray", opacity=0.25)
 
     fig.update_layout(
         title=f"TESS Light Curve (3-panel comparison): {target}",
         showlegend=False,
         height=1050,
     )
-    fig.update_xaxes(title_text="Time [BJD - 2450000]", row=3, col=1, rangeslider={"visible": True})
+    fig.update_xaxes(title_text="Time [BTJD]", row=3, col=1, rangeslider={"visible": True})
     fig.update_yaxes(title_text="Flux", row=1, col=1)
     fig.update_yaxes(title_text="Relative Flux", row=2, col=1)
     fig.update_yaxes(title_text="Relative Flux [ppm]", row=3, col=1)
@@ -363,3 +358,123 @@ def save_raw_vs_prepared_plot_interactive(
 
     fig.write_html(str(output_path), include_plotlyjs="cdn")
     return output_path
+
+
+def _phase_fold_days(time: np.ndarray, period_days: float, epoch_days: float) -> np.ndarray:
+    phase = ((time - epoch_days + 0.5 * period_days) % period_days) - 0.5 * period_days
+    return phase
+
+
+def _phase_binned_median(
+    phase_hours: np.ndarray, flux_ppm: np.ndarray, n_bins: int = 120
+) -> tuple[np.ndarray, np.ndarray]:
+    if len(phase_hours) == 0:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+    p_min = float(np.nanmin(phase_hours))
+    p_max = float(np.nanmax(phase_hours))
+    if not np.isfinite(p_min) or not np.isfinite(p_max) or p_max <= p_min:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+    edges = np.linspace(p_min, p_max, max(20, int(n_bins)) + 1)
+    centers = []
+    medians = []
+    idx = np.digitize(phase_hours, edges) - 1
+    for i in range(len(edges) - 1):
+        mask = idx == i
+        if int(np.count_nonzero(mask)) < 12:
+            continue
+        centers.append(float((edges[i] + edges[i + 1]) * 0.5))
+        medians.append(float(np.nanmedian(flux_ppm[mask])))
+    return np.asarray(centers, dtype=float), np.asarray(medians, dtype=float)
+
+
+def save_candidate_diagnostics(
+    target: str,
+    output_key: str,
+    lc_prepared: lk.LightCurve,
+    candidates: list[BLSCandidate],
+    period_grid_days: np.ndarray,
+    power_grid: np.ndarray,
+) -> list[tuple[Path, Path]]:
+    output_dir = Path("outputs/diagnostics")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    time = np.asarray(lc_prepared.time.value, dtype=float)
+    flux = np.asarray(lc_prepared.flux.value, dtype=float)
+    finite = np.isfinite(time) & np.isfinite(flux)
+    time = time[finite]
+    flux = flux[finite]
+    flux_ppm = _relative_flux_to_ppm(flux)
+
+    written: list[tuple[Path, Path]] = []
+    for candidate in candidates:
+        rank_tag = f"candidate_{candidate.rank:02d}"
+        base = f"{_safe_target_name(target)}__bls_{output_key}__{rank_tag}"
+        periodogram_path = output_dir / f"{base}_periodogram.png"
+        phasefold_path = output_dir / f"{base}_phasefold.png"
+
+        fig_p, ax_p = plt.subplots(figsize=(9, 3.5))
+        if len(period_grid_days) and len(power_grid):
+            ax_p.plot(period_grid_days, power_grid, color="#264653", linewidth=1.0)
+        ax_p.axvline(candidate.period_days, color="#e76f51", linewidth=1.2, alpha=0.9)
+        ax_p.set_xlabel("Period [days]")
+        ax_p.set_ylabel("BLS Power")
+        ax_p.set_title(f"BLS Periodogram: {target} (candidate #{candidate.rank})")
+        fig_p.tight_layout()
+        fig_p.savefig(periodogram_path, dpi=150)
+        plt.close(fig_p)
+
+        fig_f, (ax_full, ax_zoom) = plt.subplots(2, 1, figsize=(9, 6.2), sharey=True)
+        phase_days = _phase_fold_days(time, candidate.period_days, candidate.transit_time)
+        order = np.argsort(phase_days)
+        phase_hours = phase_days[order] * 24.0
+        flux_ppm_ordered = flux_ppm[order]
+        x_bin, y_bin = _phase_binned_median(phase_hours, flux_ppm_ordered)
+        ax_full.plot(
+            phase_hours, flux_ppm_ordered, ".", markersize=0.6, alpha=0.22, color="#4c566a"
+        )
+        if len(x_bin):
+            ax_full.plot(x_bin, y_bin, color="#e76f51", linewidth=1.2, alpha=0.95)
+
+        half_window_hours = candidate.duration_hours * 0.5
+        ax_full.axvspan(
+            -half_window_hours,
+            half_window_hours,
+            color="#f4a261",
+            alpha=0.2,
+            label="Transit window",
+        )
+        ax_full.axvline(0.0, color="#e76f51", linewidth=1.0, alpha=0.9)
+        ax_full.set_xlim(float(np.nanmin(phase_hours)), float(np.nanmax(phase_hours)))
+        ax_full.set_xlabel("Phase [hours]")
+        ax_full.set_ylabel("Relative Flux [ppm]")
+        ax_full.set_title(
+            f"Phase Folded (Full): P={candidate.period_days:.6f} d, D={candidate.duration_hours:.2f} h"
+        )
+        ax_full.legend(loc="upper right")
+
+        ax_zoom.plot(
+            phase_hours, flux_ppm_ordered, ".", markersize=0.8, alpha=0.25, color="#4c566a"
+        )
+        if len(x_bin):
+            ax_zoom.plot(x_bin, y_bin, color="#e76f51", linewidth=1.3, alpha=0.95)
+        ax_zoom.axvspan(
+            -half_window_hours,
+            half_window_hours,
+            color="#f4a261",
+            alpha=0.25,
+            label="Transit window",
+        )
+        ax_zoom.axvline(0.0, color="#e76f51", linewidth=1.0, alpha=0.9)
+        zoom_half_width = max(3.0 * candidate.duration_hours, 6.0)
+        ax_zoom.set_xlim(-zoom_half_width, zoom_half_width)
+        ax_zoom.set_xlabel("Phase [hours]")
+        ax_zoom.set_ylabel("Relative Flux [ppm]")
+        ax_zoom.set_title(
+            f"Phase Folded (Zoom ±{zoom_half_width:.1f} h, ~{zoom_half_width / candidate.duration_hours:.1f}D)"
+        )
+        ax_zoom.legend(loc="upper right")
+        fig_f.tight_layout()
+        fig_f.savefig(phasefold_path, dpi=150)
+        plt.close(fig_f)
+
+        written.append((periodogram_path, phasefold_path))
+    return written

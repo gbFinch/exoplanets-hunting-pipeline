@@ -41,10 +41,16 @@ pip install -e .[plotting]
 python -m exohunt.cli --target "TIC 261136679" --interactive-html --interactive-max-points 200000
 ```
 
-Plots are generated only when at least one time bound is provided. For example (BJD-2450000):
+Plots are generated only when at least one time bound is provided. For example (BTJD):
 
 ```bash
-python -m exohunt.cli --target "TIC 261136679" --plot-time-start 8300 --plot-time-end 8350
+python -m exohunt.cli --target "TIC 261136679" --plot-time-start 1300 --plot-time-end 1350
+```
+
+You can also generate a plot by sector selection (per-sector mode):
+
+```bash
+python -m exohunt.cli --target "TIC 261136679" --preprocess-mode per-sector --plot-sectors 14,15
 ```
 
 The output plot is saved as `outputs/plots/<target>_prepared.png`.
@@ -55,8 +61,18 @@ BLS transit-search core runs by default on prepared light curves (top candidates
 python -m exohunt.cli --target "TIC 261136679" --bls-period-min-days 0.5 --bls-period-max-days 20 --bls-top-n 5
 ```
 
+To run BLS independently per prepared sector (instead of stitched):
+
+```bash
+python -m exohunt.cli --target "TIC 261136679" --preprocess-mode per-sector --bls-mode per-sector
+```
+
 Each run writes ranked BLS candidate tables to `outputs/candidates/` as deterministic
 CSV/JSON files keyed by target and run configuration.
+
+When BLS candidates exist, per-candidate diagnostics are written to `outputs/diagnostics/`:
+- periodogram plots with candidate period marker
+- phase-folded light curves with transit-window overlays
 
 Each run also writes preprocessing quality metrics to:
 - `outputs/metrics/preprocessing_summary.csv` (append-only run table)
