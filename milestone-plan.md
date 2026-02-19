@@ -131,21 +131,23 @@ Important note: "When implementing the step explain the theory behind the milest
 - Theory note: explain why non-decision knobs should not be user-facing defaults.
 - Implemented in `src/exohunt/cli.py` and `src/exohunt/pipeline.py` with fixed internal defaults for cache location and download limits.
 
-21. [Planned] [Engineering] Implement config schema + resolver
+21. [Done] [Engineering] Implement config schema + resolver
 - Add versioned config schema and strict validation.
 - Implement merge order: defaults -> built-in preset -> user file -> CLI explicit overrides.
 - Add clear validation errors for invalid/unknown keys.
 - Exit criteria: resolver produces a single canonical runtime config object for all commands.
 - Theory note: describe deterministic configuration layering for reproducible science runs.
+- Implemented in `src/exohunt/config.py` and integrated via `src/exohunt/cli.py` with coverage in `tests/test_config.py`.
 
-22. [Planned] [Engineering] Add built-in preset pack and init-config generator
+22. [Done] [Engineering] Add built-in preset pack and init-config generator
 - Implement built-ins: `quicklook`, `science-default`, `deep-search`.
 - Add `init-config --from <preset> --out <file>`.
 - Persist preset id/version/hash into run manifest.
 - Exit criteria: users can scaffold valid config files from built-ins and run without low-level flags.
 - Theory note: document progressive disclosure via presets and controlled override paths.
+- Implemented in `src/exohunt/config.py` + `src/exohunt/cli.py`, with manifest persistence in `src/exohunt/pipeline.py` and tests in `tests/test_config.py` / `tests/test_smoke.py`.
 
-23. [Planned] [Engineering] Restructure CLI into command-oriented UX
+23. [Done] [Engineering] Restructure CLI into command-oriented UX
 - Introduce explicit commands:
   - `exohunt run --target ... --config ...`
   - `exohunt batch --targets-file ... --config ...`
@@ -153,10 +155,12 @@ Important note: "When implementing the step explain the theory behind the milest
 - Keep temporary compatibility path for `python -m exohunt.cli` with deprecation messaging.
 - Exit criteria: command-specific help is concise and mode-coupled validation runs before execution.
 - Theory note: explain command partitioning and reduction of parameter overload.
+- Implemented in `src/exohunt/cli.py` with updated usage docs in `README.md`.
 
-24. [Planned] [Validation] Migration, testing, and deprecation hardening
+24. [Done] [Validation] Migration, testing, and deprecation hardening
 - Add tests for config parsing, preset resolution, and command behavior.
 - Add migration tests for removed parameters and legacy value mapping (`global -> stitched`).
 - Add deprecation/error messages with actionable replacements.
 - Exit criteria: legacy users get clear migration paths; new config workflow is test-covered and stable.
 - Theory note: describe backward-compatibility strategy and scientific reproducibility safeguards.
+- Implemented via deprecation-key handling in `src/exohunt/config.py` with migration/command tests in `tests/test_config.py` and `tests/test_cli.py`.
