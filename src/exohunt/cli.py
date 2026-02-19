@@ -6,6 +6,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from exohunt.config import ConfigValidationError, resolve_runtime_config
 from exohunt.pipeline import fetch_and_plot, run_batch_analysis
 
 
@@ -161,6 +162,46 @@ def _load_batch_targets(path: Path) -> list[str]:
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = build_parser().parse_args()
+
+    cli_overrides = {
+        "io": {"refresh_cache": bool(args.refresh_cache)},
+        "ingest": {
+            "authors": [
+                author.strip().upper() for author in str(args.authors).split(",") if author.strip()
+            ]
+        },
+        "preprocess": {
+            "enabled": bool(not args.no_preprocess),
+            "mode": str(args.preprocess_mode),
+            "outlier_sigma": float(args.outlier_sigma),
+            "flatten_window_length": int(args.flatten_window_length),
+            "flatten": bool(not args.no_flatten),
+        },
+        "plot": {
+            "enabled": True,
+            "mode": str(args.plot_mode),
+            "interactive_html": bool(args.interactive_html),
+            "interactive_max_points": int(args.interactive_max_points),
+        },
+        "bls": {
+            "enabled": bool(not args.no_bls),
+            "mode": str(args.bls_mode),
+            "period_min_days": float(args.bls_period_min_days),
+            "period_max_days": float(args.bls_period_max_days),
+            "duration_min_hours": float(args.bls_duration_min_hours),
+            "duration_max_hours": float(args.bls_duration_max_hours),
+            "n_periods": int(args.bls_n_periods),
+            "n_durations": int(args.bls_n_durations),
+            "top_n": int(args.bls_top_n),
+        },
+    }
+    try:
+        runtime_config = resolve_runtime_config(cli_overrides=cli_overrides)
+    except ConfigValidationError as exc:
+        raise RuntimeError(f"Invalid runtime configuration: {exc}") from exc
+
+    authors = ",".join(runtime_config.ingest.authors) if runtime_config.ingest.authors else None
+
     if args.batch_targets_file:
         batch_targets_file = Path(args.batch_targets_file)
         targets = _load_batch_targets(batch_targets_file)
@@ -168,25 +209,25 @@ def main() -> int:
             raise RuntimeError(f"No targets found in batch file: {batch_targets_file}")
         run_batch_analysis(
             targets=targets,
-            refresh_cache=args.refresh_cache,
-            outlier_sigma=args.outlier_sigma,
-            flatten_window_length=args.flatten_window_length,
-            preprocess_enabled=not args.no_preprocess,
-            no_flatten=args.no_flatten,
-            preprocess_mode=args.preprocess_mode,
-            authors=args.authors,
-            interactive_html=args.interactive_html,
-            interactive_max_points=args.interactive_max_points,
-            plot_mode=args.plot_mode,
-            run_bls=not args.no_bls,
-            bls_period_min_days=args.bls_period_min_days,
-            bls_period_max_days=args.bls_period_max_days,
-            bls_duration_min_hours=args.bls_duration_min_hours,
-            bls_duration_max_hours=args.bls_duration_max_hours,
-            bls_n_periods=args.bls_n_periods,
-            bls_n_durations=args.bls_n_durations,
-            bls_top_n=args.bls_top_n,
-            bls_mode=args.bls_mode,
+            refresh_cache=runtime_config.io.refresh_cache,
+            outlier_sigma=runtime_config.preprocess.outlier_sigma,
+            flatten_window_length=runtime_config.preprocess.flatten_window_length,
+            preprocess_enabled=runtime_config.preprocess.enabled,
+            no_flatten=not runtime_config.preprocess.flatten,
+            preprocess_mode=runtime_config.preprocess.mode,
+            authors=authors,
+            interactive_html=runtime_config.plot.interactive_html,
+            interactive_max_points=runtime_config.plot.interactive_max_points,
+            plot_mode=runtime_config.plot.mode,
+            run_bls=runtime_config.bls.enabled,
+            bls_period_min_days=runtime_config.bls.period_min_days,
+            bls_period_max_days=runtime_config.bls.period_max_days,
+            bls_duration_min_hours=runtime_config.bls.duration_min_hours,
+            bls_duration_max_hours=runtime_config.bls.duration_max_hours,
+            bls_n_periods=runtime_config.bls.n_periods,
+            bls_n_durations=runtime_config.bls.n_durations,
+            bls_top_n=runtime_config.bls.top_n,
+            bls_mode=runtime_config.bls.mode,
             resume=args.batch_resume,
             state_path=Path(args.batch_state_path) if args.batch_state_path else None,
             status_path=Path(args.batch_status_path) if args.batch_status_path else None,
@@ -194,25 +235,25 @@ def main() -> int:
     else:
         fetch_and_plot(
             args.target,
-            refresh_cache=args.refresh_cache,
-            outlier_sigma=args.outlier_sigma,
-            flatten_window_length=args.flatten_window_length,
-            preprocess_enabled=not args.no_preprocess,
-            no_flatten=args.no_flatten,
-            preprocess_mode=args.preprocess_mode,
-            authors=args.authors,
-            interactive_html=args.interactive_html,
-            interactive_max_points=args.interactive_max_points,
-            plot_mode=args.plot_mode,
-            run_bls=not args.no_bls,
-            bls_period_min_days=args.bls_period_min_days,
-            bls_period_max_days=args.bls_period_max_days,
-            bls_duration_min_hours=args.bls_duration_min_hours,
-            bls_duration_max_hours=args.bls_duration_max_hours,
-            bls_n_periods=args.bls_n_periods,
-            bls_n_durations=args.bls_n_durations,
-            bls_top_n=args.bls_top_n,
-            bls_mode=args.bls_mode,
+            refresh_cache=runtime_config.io.refresh_cache,
+            outlier_sigma=runtime_config.preprocess.outlier_sigma,
+            flatten_window_length=runtime_config.preprocess.flatten_window_length,
+            preprocess_enabled=runtime_config.preprocess.enabled,
+            no_flatten=not runtime_config.preprocess.flatten,
+            preprocess_mode=runtime_config.preprocess.mode,
+            authors=authors,
+            interactive_html=runtime_config.plot.interactive_html,
+            interactive_max_points=runtime_config.plot.interactive_max_points,
+            plot_mode=runtime_config.plot.mode,
+            run_bls=runtime_config.bls.enabled,
+            bls_period_min_days=runtime_config.bls.period_min_days,
+            bls_period_max_days=runtime_config.bls.period_max_days,
+            bls_duration_min_hours=runtime_config.bls.duration_min_hours,
+            bls_duration_max_hours=runtime_config.bls.duration_max_hours,
+            bls_n_periods=runtime_config.bls.n_periods,
+            bls_n_durations=runtime_config.bls.n_durations,
+            bls_top_n=runtime_config.bls.top_n,
+            bls_mode=runtime_config.bls.mode,
         )
     return 0
 
