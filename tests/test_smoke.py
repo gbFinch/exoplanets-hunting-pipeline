@@ -17,6 +17,7 @@ from exohunt.cache import (
 from exohunt.pipeline import fetch_and_plot
 from exohunt.plotting import _apply_time_window, _downsample_minmax, save_candidate_diagnostics
 from exohunt.preprocess import compute_preprocessing_quality_metrics
+from exohunt.parameters import estimate_candidate_parameters
 from exohunt.vetting import vet_bls_candidates
 
 
@@ -615,6 +616,29 @@ def test_vet_bls_candidates_flags_odd_even_mismatch():
     assert vet[1].odd_even_depth_mismatch_fraction > 0.3
 
 
+def test_estimate_candidate_parameters_returns_radius_ratio_and_duration_check():
+    candidate = BLSCandidate(
+        rank=1,
+        period_days=3.2,
+        duration_hours=2.5,
+        depth=1.21e-4,
+        depth_ppm=121.0,
+        power=0.02,
+        transit_time=0.3,
+        transit_count_estimate=10.0,
+    )
+    estimates = estimate_candidate_parameters([candidate])
+    assert 1 in estimates
+    estimate = estimates[1]
+    assert abs(estimate.radius_ratio_rp_over_rs - 0.011) < 1e-6
+    assert estimate.radius_earth_radii_solar_assumption > 1.0
+    assert estimate.duration_expected_hours_central_solar_density > 0.0
+    assert estimate.duration_ratio_observed_to_expected > 0.0
+    assert isinstance(estimate.pass_duration_plausibility, bool)
+    assert "depth~(Rp/Rs)^2" in estimate.parameter_assumptions
+    assert "Preliminary estimate only" in estimate.parameter_uncertainty_caveats
+
+
 def test_save_candidate_diagnostics_writes_assets(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     lc = _BLSLC(
@@ -685,6 +709,10 @@ def test_write_bls_candidates_outputs_structured_files(monkeypatch, tmp_path):
         "bls_n_periods": 2000,
         "bls_n_durations": 12,
         "bls_top_n": 5,
+        "parameter_estimation_enabled": True,
+        "parameter_stellar_density_kg_m3": 1408.0,
+        "parameter_duration_ratio_min": 0.05,
+        "parameter_duration_ratio_max": 1.8,
     }
 
     csv_path, json_path = pipeline._write_bls_candidates(
@@ -692,6 +720,7 @@ def test_write_bls_candidates_outputs_structured_files(monkeypatch, tmp_path):
         output_key="abc123",
         metadata=metadata,
         candidates=candidates,
+        parameter_estimates_by_rank=estimate_candidate_parameters(candidates),
     )
 
     assert csv_path.exists()
@@ -703,6 +732,11 @@ def test_write_bls_candidates_outputs_structured_files(monkeypatch, tmp_path):
         rows = list(reader)
     assert len(rows) == 1
     assert float(rows[0]["period_days"]) == 3.2
+    assert float(rows[0]["radius_ratio_rp_over_rs"]) > 0.0
+    assert rows[0]["parameter_assumptions"] != ""
+    assert rows[0]["parameter_uncertainty_caveats"] != ""
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["metadata"]["target"] == "TIC 1"
+    assert payload["metadata"]["parameter_estimation_enabled"]
     assert payload["candidates"][0]["rank"] == 1
+    assert payload["candidates"][0]["radius_ratio_rp_over_rs"] > 0.0

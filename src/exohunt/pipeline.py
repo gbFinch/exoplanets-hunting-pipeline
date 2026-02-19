@@ -40,6 +40,7 @@ from exohunt.plotting import (
 )
 from exohunt.preprocess import compute_preprocessing_quality_metrics, prepare_lightcurve
 from exohunt.progress import _render_progress
+from exohunt.parameters import CandidateParameterEstimate, estimate_candidate_parameters
 from exohunt.vetting import CandidateVettingResult, vet_bls_candidates
 
 
@@ -80,6 +81,13 @@ _CANDIDATE_COLUMNS = [
     "power",
     "transit_time",
     "transit_count_estimate",
+    "radius_ratio_rp_over_rs",
+    "radius_earth_radii_solar_assumption",
+    "duration_expected_hours_central_solar_density",
+    "duration_ratio_observed_to_expected",
+    "pass_duration_plausibility",
+    "parameter_assumptions",
+    "parameter_uncertainty_caveats",
     "pass_min_transit_count",
     "pass_odd_even_depth",
     "pass_alias_harmonic",
@@ -95,6 +103,9 @@ _CANDIDATE_COLUMNS = [
 _VETTING_MIN_TRANSIT_COUNT = 2
 _VETTING_ODD_EVEN_MAX_MISMATCH_FRACTION = 0.30
 _VETTING_ALIAS_TOLERANCE_FRACTION = 0.02
+_PARAMETER_STELLAR_DENSITY_KG_M3 = 1408.0
+_PARAMETER_DURATION_RATIO_MIN = 0.05
+_PARAMETER_DURATION_RATIO_MAX = 1.8
 
 
 def _metrics_cache_path(
@@ -277,6 +288,7 @@ def _write_bls_candidates(
     metadata: dict[str, str | int | float | bool],
     candidates: list[BLSCandidate],
     vetting_by_rank: dict[int, CandidateVettingResult] | None = None,
+    parameter_estimates_by_rank: dict[int, CandidateParameterEstimate] | None = None,
 ) -> tuple[Path, Path]:
     output_dir = _target_artifact_dir(target, "candidates")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -291,6 +303,21 @@ def _write_bls_candidates(
         for candidate in candidates:
             row = dict(metadata)
             row.update(asdict(candidate))
+            parameter_estimate = (parameter_estimates_by_rank or {}).get(int(candidate.rank))
+            if parameter_estimate is not None:
+                row.update(asdict(parameter_estimate))
+            else:
+                row.update(
+                    {
+                        "radius_ratio_rp_over_rs": None,
+                        "radius_earth_radii_solar_assumption": None,
+                        "duration_expected_hours_central_solar_density": None,
+                        "duration_ratio_observed_to_expected": None,
+                        "pass_duration_plausibility": None,
+                        "parameter_assumptions": "",
+                        "parameter_uncertainty_caveats": "",
+                    }
+                )
             vetting = (vetting_by_rank or {}).get(int(candidate.rank))
             if vetting is not None:
                 row.update(asdict(vetting))
@@ -317,6 +344,9 @@ def _write_bls_candidates(
     }
     for candidate in candidates:
         row = asdict(candidate)
+        parameter_estimate = (parameter_estimates_by_rank or {}).get(int(candidate.rank))
+        if parameter_estimate is not None:
+            row.update(asdict(parameter_estimate))
         vetting = (vetting_by_rank or {}).get(int(candidate.rank))
         if vetting is not None:
             row.update(asdict(vetting))
@@ -686,6 +716,10 @@ def fetch_and_plot(
                     "bls_n_periods": int(bls_n_periods),
                     "bls_n_durations": int(bls_n_durations),
                     "bls_top_n": int(bls_top_n),
+                    "parameter_estimation_enabled": True,
+                    "parameter_stellar_density_kg_m3": float(_PARAMETER_STELLAR_DENSITY_KG_M3),
+                    "parameter_duration_ratio_min": float(_PARAMETER_DURATION_RATIO_MIN),
+                    "parameter_duration_ratio_max": float(_PARAMETER_DURATION_RATIO_MAX),
                 }
                 segment_key = _candidate_output_key(
                     target=target,
@@ -718,6 +752,12 @@ def fetch_and_plot(
                         min_transit_count=_VETTING_MIN_TRANSIT_COUNT,
                         odd_even_mismatch_max_fraction=_VETTING_ODD_EVEN_MAX_MISMATCH_FRACTION,
                         alias_tolerance_fraction=_VETTING_ALIAS_TOLERANCE_FRACTION,
+                    ),
+                    parameter_estimates_by_rank=estimate_candidate_parameters(
+                        candidates=segment_candidates,
+                        stellar_density_kg_m3=_PARAMETER_STELLAR_DENSITY_KG_M3,
+                        duration_ratio_min=_PARAMETER_DURATION_RATIO_MIN,
+                        duration_ratio_max=_PARAMETER_DURATION_RATIO_MAX,
                     ),
                 )
                 candidate_csv_paths.append(csv_path)
@@ -839,6 +879,10 @@ def fetch_and_plot(
             "bls_n_durations": int(bls_n_durations),
             "bls_top_n": int(bls_top_n),
             "bls_refined_local": bool(run_bls and bls_mode == "stitched"),
+            "parameter_estimation_enabled": bool(run_bls),
+            "parameter_stellar_density_kg_m3": float(_PARAMETER_STELLAR_DENSITY_KG_M3),
+            "parameter_duration_ratio_min": float(_PARAMETER_DURATION_RATIO_MIN),
+            "parameter_duration_ratio_max": float(_PARAMETER_DURATION_RATIO_MAX),
         }
         candidate_csv_path, candidate_json_path = _write_bls_candidates(
             target=target,
@@ -846,6 +890,12 @@ def fetch_and_plot(
             metadata=candidate_metadata,
             candidates=bls_candidates,
             vetting_by_rank=stitched_vetting_by_rank,
+            parameter_estimates_by_rank=estimate_candidate_parameters(
+                candidates=bls_candidates,
+                stellar_density_kg_m3=_PARAMETER_STELLAR_DENSITY_KG_M3,
+                duration_ratio_min=_PARAMETER_DURATION_RATIO_MIN,
+                duration_ratio_max=_PARAMETER_DURATION_RATIO_MAX,
+            ),
         )
         candidate_csv_paths.append(candidate_csv_path)
         candidate_json_paths.append(candidate_json_path)

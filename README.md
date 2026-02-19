@@ -71,6 +71,9 @@ Each run writes ranked BLS candidate tables to `outputs/<target>/candidates/` as
 CSV/JSON files keyed by target and run configuration.
 Candidate rows also include vetting flags/reasons (`pass_min_transit_count`,
 `pass_odd_even_depth`, `pass_alias_harmonic`, `vetting_pass`, `vetting_reasons`).
+They also include preliminary planet-parameter fields: `radius_ratio_rp_over_rs`,
+`radius_earth_radii_solar_assumption`, duration plausibility checks, and explicit
+assumption/caveat text for interpretation.
 
 When BLS candidates exist, per-candidate diagnostics are written to `outputs/<target>/diagnostics/`:
 - periodogram plots with candidate period marker

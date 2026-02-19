@@ -73,10 +73,11 @@ Important note: "When implementing the step explain the theory behind the milest
 - Exit criteria: each candidate has pass/fail vetting flags with recorded reasons.
 - Implemented in `src/exohunt/vetting.py` and integrated into candidate outputs in `src/exohunt/pipeline.py`.
 
-13. [Pending] [Engineering] Add preliminary planet parameter estimation
+13. [Done] [Engineering] Add preliminary planet parameter estimation
 - Estimate first-pass radius ratio and duration-based plausibility checks.
 - Record assumptions and uncertainty caveats in outputs.
 - Exit criteria: candidate records include parameter estimates and explicit assumptions.
+- Implemented in `src/exohunt/parameters.py` and integrated into candidate outputs in `src/exohunt/pipeline.py`.
 
 14. [Pending] [Validation] Expand automated tests for analysis modules
 - Add unit tests for preprocessing metrics and BLS ranking logic.
