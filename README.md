@@ -28,10 +28,10 @@ Preprocessing is now applied before plotting (normalize, outlier filtering, flat
 python -m exohunt.cli --target "TIC 261136679" --outlier-sigma 5 --flatten-window-length 401
 ```
 
-Example per-sector filters:
+Author filtering in per-sector mode:
 
 ```bash
-python -m exohunt.cli --target "TIC 261136679" --preprocess-mode per-sector --sectors 14,15 --authors SPOC
+python -m exohunt.cli --target "TIC 261136679" --preprocess-mode per-sector --authors SPOC
 ```
 
 Interactive downsampled HTML (recommended for very large light curves):

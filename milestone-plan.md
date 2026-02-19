@@ -99,12 +99,13 @@ Important note: "When implementing the step explain the theory behind the milest
 
 ## Next Milestones (Refactoring-First)
 
-17. [Planned] [Refactor] Remove ingest sector filtering
+17. [Done] [Refactor] Remove ingest sector filtering
 - Remove `--sectors` from run/batch UX.
 - Remove ingest-sector filtering from pipeline inputs and config schema.
 - Ingest always uses all available sectors.
 - Exit criteria: sector filter is not accepted in new UX; pipeline behavior is full-ingest by default.
 - Theory note: explain completeness vs user-control tradeoff and why full-ingest is safer as default.
+- Implemented in `src/exohunt/cli.py`, `src/exohunt/pipeline.py`, and `src/exohunt/ingest.py`.
 
 18. [Planned] [Refactor] Simplify plotting controls to mode-based behavior
 - Remove `--plot-time-start`, `--plot-time-end`, `--plot-sectors` from new UX.

@@ -77,11 +77,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Preprocessing strategy. Per-sector is recommended for TESS.",
     )
     parser.add_argument(
-        "--sectors",
-        default=None,
-        help="Optional comma-separated sector filter, e.g. '14,15,16'.",
-    )
-    parser.add_argument(
         "--authors",
         default="SPOC",
         help="Optional comma-separated author filter, e.g. 'SPOC'.",
@@ -197,7 +192,6 @@ def main() -> int:
             max_download_files=args.max_download_files,
             no_flatten=args.no_flatten,
             preprocess_mode=args.preprocess_mode,
-            sectors=args.sectors,
             authors=args.authors,
             interactive_html=args.interactive_html,
             interactive_max_points=args.interactive_max_points,
@@ -227,7 +221,6 @@ def main() -> int:
             max_download_files=args.max_download_files,
             no_flatten=args.no_flatten,
             preprocess_mode=args.preprocess_mode,
-            sectors=args.sectors,
             authors=args.authors,
             interactive_html=args.interactive_html,
             interactive_max_points=args.interactive_max_points,

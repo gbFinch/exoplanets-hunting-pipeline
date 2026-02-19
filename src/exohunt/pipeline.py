@@ -35,7 +35,7 @@ from exohunt.bls import (
     refine_bls_candidates,
     run_bls_search,
 )
-from exohunt.ingest import _extract_segments, _parse_authors, _parse_sectors
+from exohunt.ingest import _extract_segments, _parse_authors
 from exohunt.models import LightCurveSegment
 from exohunt.plotting import (
     save_candidate_diagnostics,
@@ -143,6 +143,15 @@ _BATCH_STATUS_COLUMNS = [
 ]
 
 
+def _parse_sector_list(value: str | None) -> set[int] | None:
+    if not value:
+        return None
+    items = [chunk.strip() for chunk in value.split(",") if chunk.strip()]
+    if not items:
+        return None
+    return {int(item) for item in items}
+
+
 @dataclass(frozen=True)
 class BatchTargetStatus:
     run_utc: str
@@ -222,7 +231,9 @@ def _write_run_manifest(
 
     target_manifest_dir = _target_artifact_dir(target, "manifests")
     target_manifest_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = target_manifest_dir / f"{_safe_target_name(target)}__manifest_{manifest_run_key}.json"
+    manifest_path = (
+        target_manifest_dir / f"{_safe_target_name(target)}__manifest_{manifest_run_key}.json"
+    )
 
     manifest_payload = {
         "schema_version": 1,
@@ -246,7 +257,9 @@ def _write_run_manifest(
             "platform": platform.platform(),
         },
     }
-    manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True), encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(manifest_payload, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
     index_row: dict[str, str | int | float | bool] = {
         "run_started_utc": run_started_utc,
@@ -284,7 +297,6 @@ def _metrics_cache_path(
     outlier_sigma: float,
     flatten_window_length: int,
     no_flatten: bool,
-    sectors: str | None,
     authors: str | None,
     raw_n_points: int,
     prepared_n_points: int,
@@ -300,7 +312,6 @@ def _metrics_cache_path(
         "outlier_sigma": round(float(outlier_sigma), 6),
         "flatten_window_length": int(flatten_window_length),
         "no_flatten": bool(no_flatten),
-        "sectors": sectors or "",
         "authors": authors or "",
         "raw_n_points": int(raw_n_points),
         "prepared_n_points": int(prepared_n_points),
@@ -420,7 +431,6 @@ def _candidate_output_key(
     bls_n_periods: int,
     bls_n_durations: int,
     bls_top_n: int,
-    sectors: str | None,
     authors: str | None,
     n_points_prepared: int,
     time_min: float,
@@ -441,7 +451,6 @@ def _candidate_output_key(
         "bls_n_periods": int(bls_n_periods),
         "bls_n_durations": int(bls_n_durations),
         "bls_top_n": int(bls_top_n),
-        "sectors": sectors or "",
         "authors": authors or "",
         "n_points_prepared": int(n_points_prepared),
         "time_min": round(float(time_min), 7),
@@ -591,7 +600,6 @@ def run_batch_analysis(
     max_download_files: int | None = None,
     no_flatten: bool = False,
     preprocess_mode: str = "per-sector",
-    sectors: str | None = None,
     authors: str | None = None,
     interactive_html: bool = False,
     interactive_max_points: int = 200_000,
@@ -662,7 +670,6 @@ def run_batch_analysis(
                 max_download_files=max_download_files,
                 no_flatten=no_flatten,
                 preprocess_mode=preprocess_mode,
-                sectors=sectors,
                 authors=authors,
                 interactive_html=interactive_html,
                 interactive_max_points=interactive_max_points,
@@ -730,7 +737,6 @@ def fetch_and_plot(
     max_download_files: int | None = None,
     no_flatten: bool = False,
     preprocess_mode: str = "per-sector",
-    sectors: str | None = None,
     authors: str | None = None,
     interactive_html: bool = False,
     interactive_max_points: int = 200_000,
@@ -747,12 +753,18 @@ def fetch_and_plot(
     bls_top_n: int = 5,
     bls_mode: str = "stitched",
 ) -> Path | None:
+    """Fetch, preprocess, analyze, and optionally plot a target light curve.
+
+    Theory (milestone 17): ingest intentionally includes all available sectors.
+    This defaults toward completeness, which improves transit recoverability for
+    sparse or long-period events. The tradeoff is reduced user control over
+    sector selection in the default workflow, but avoids accidental under-sampling.
+    """
     started_at = perf_counter()
     run_started_dt = datetime.now(tz=timezone.utc)
     run_started_utc = run_started_dt.isoformat()
-    selected_sectors = _parse_sectors(sectors)
     selected_authors = _parse_authors(authors)
-    selected_plot_sectors = _parse_sectors(plot_sectors)
+    selected_plot_sectors = _parse_sector_list(plot_sectors)
     boundaries: list[float] = []
     data_source = "download"
     prepared_segments_for_bls: list[LightCurveSegment] = []
@@ -858,8 +870,6 @@ def fetch_and_plot(
             sector = int(row.get("sector", -1))
             author = str(row.get("author", "UNKNOWN")).upper()
             cadence = float(row.get("cadence", np.nan))
-            if selected_sectors is not None and sector not in selected_sectors:
-                continue
             if selected_authors is not None and author not in selected_authors:
                 continue
             raw_path = _segment_raw_cache_path(target, cache_dir, segment_id)
@@ -919,11 +929,10 @@ def fetch_and_plot(
                 raise RuntimeError(f"Failed to download TESS light curve for target: {target}")
             raw_segments = _extract_segments(
                 lcs,
-                selected_sectors=selected_sectors,
                 selected_authors=selected_authors,
             )
             if not raw_segments:
-                raise RuntimeError("No segments remain after sector/author filters.")
+                raise RuntimeError("No segments remain after author filters.")
             LOGGER.info(
                 "Download complete in %.2fs (%d segments)",
                 perf_counter() - step_started,
@@ -999,7 +1008,6 @@ def fetch_and_plot(
         outlier_sigma=outlier_sigma,
         flatten_window_length=flatten_window_length,
         no_flatten=no_flatten,
-        sectors=sectors,
         authors=authors,
         raw_n_points=n_points_raw,
         prepared_n_points=n_points_prepared,
@@ -1070,7 +1078,6 @@ def fetch_and_plot(
                     "outlier_sigma": float(outlier_sigma),
                     "flatten_window_length": int(flatten_window_length),
                     "no_flatten": bool(no_flatten),
-                    "sectors": sectors if sectors else "all",
                     "authors": authors if authors else "all",
                     "n_points_raw": int(n_points_raw),
                     "n_points_prepared": int(len(segment.lc.time.value)),
@@ -1104,7 +1111,6 @@ def fetch_and_plot(
                     bls_n_periods=bls_n_periods,
                     bls_n_durations=bls_n_durations,
                     bls_top_n=bls_top_n,
-                    sectors=str(segment.sector),
                     authors=segment.author,
                     n_points_prepared=len(segment.lc.time.value),
                     time_min=seg_t_min if np.isfinite(seg_t_min) else 0.0,
@@ -1218,7 +1224,6 @@ def fetch_and_plot(
             bls_n_periods=bls_n_periods,
             bls_n_durations=bls_n_durations,
             bls_top_n=bls_top_n,
-            sectors=sectors,
             authors=authors,
             n_points_prepared=n_points_prepared,
             time_min=time_min,
@@ -1232,7 +1237,6 @@ def fetch_and_plot(
             "outlier_sigma": float(outlier_sigma),
             "flatten_window_length": int(flatten_window_length),
             "no_flatten": bool(no_flatten),
-            "sectors": sectors if sectors else "all",
             "authors": authors if authors else "all",
             "n_points_raw": int(n_points_raw),
             "n_points_prepared": int(n_points_prepared),
@@ -1374,7 +1378,6 @@ def fetch_and_plot(
         "max_download_files": int(max_download_files) if max_download_files is not None else -1,
         "no_flatten": bool(no_flatten),
         "preprocess_mode": preprocess_mode,
-        "sectors": sectors if sectors else "all",
         "authors": authors if authors else "all",
         "interactive_html": bool(interactive_html),
         "interactive_max_points": int(interactive_max_points),
@@ -1459,7 +1462,6 @@ def fetch_and_plot(
     LOGGER.info(
         "Max download files: %s", max_download_files if max_download_files is not None else "all"
     )
-    LOGGER.info("Sector filter: %s", sectors if sectors else "all")
     LOGGER.info("Author filter: %s", authors if authors else "all")
     LOGGER.info(
         "Plot time start (BTJD): %s",
