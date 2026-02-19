@@ -38,11 +38,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional path for batch status CSV (JSON sidecar written next to it).",
     )
     parser.add_argument(
-        "--cache-dir",
-        default="outputs/cache/lightcurves",
-        help="Directory for cached stitched light curves.",
-    )
-    parser.add_argument(
         "--refresh-cache",
         action="store_true",
         help="Ignore cached light curve and re-download from TESS.",
@@ -58,12 +53,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=401,
         help="Window length used to flatten long-term trends.",
-    )
-    parser.add_argument(
-        "--max-download-files",
-        type=int,
-        default=None,
-        help="Optional cap on number of light-curve files to download before stitching.",
     )
     parser.add_argument(
         "--no-flatten",
@@ -179,11 +168,9 @@ def main() -> int:
             raise RuntimeError(f"No targets found in batch file: {batch_targets_file}")
         run_batch_analysis(
             targets=targets,
-            cache_dir=Path(args.cache_dir),
             refresh_cache=args.refresh_cache,
             outlier_sigma=args.outlier_sigma,
             flatten_window_length=args.flatten_window_length,
-            max_download_files=args.max_download_files,
             preprocess_enabled=not args.no_preprocess,
             no_flatten=args.no_flatten,
             preprocess_mode=args.preprocess_mode,
@@ -207,11 +194,9 @@ def main() -> int:
     else:
         fetch_and_plot(
             args.target,
-            cache_dir=Path(args.cache_dir),
             refresh_cache=args.refresh_cache,
             outlier_sigma=args.outlier_sigma,
             flatten_window_length=args.flatten_window_length,
-            max_download_files=args.max_download_files,
             preprocess_enabled=not args.no_preprocess,
             no_flatten=args.no_flatten,
             preprocess_mode=args.preprocess_mode,

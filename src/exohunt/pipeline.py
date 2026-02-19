@@ -145,6 +145,9 @@ _BATCH_STATUS_COLUMNS = [
 
 
 _ALLOWED_TWO_TRACK_MODES = {"stitched", "per-sector"}
+# Theory (milestone 20): fixed operational paths are non-decisions for most users;
+# keeping them internal lowers cognitive load without removing debug flexibility.
+_DEFAULT_CACHE_DIR = Path("outputs/cache/lightcurves")
 
 
 def _resolve_preprocess_mode(mode: str) -> str:
@@ -615,7 +618,7 @@ def _write_batch_status_report(
 def run_batch_analysis(
     targets: list[str],
     *,
-    cache_dir: Path,
+    cache_dir: Path | None = None,
     refresh_cache: bool = False,
     outlier_sigma: float = 5.0,
     flatten_window_length: int = 401,
@@ -647,6 +650,7 @@ def run_batch_analysis(
     while a status report captures deterministic run outcomes for auditing.
     """
     unique_targets = [item.strip() for item in targets if item.strip()]
+    cache_dir = cache_dir or _DEFAULT_CACHE_DIR
     deduped_targets: list[str] = []
     seen: set[str] = set()
     for target in unique_targets:
@@ -750,7 +754,7 @@ def run_batch_analysis(
 
 def fetch_and_plot(
     target: str,
-    cache_dir: Path,
+    cache_dir: Path | None = None,
     refresh_cache: bool = False,
     outlier_sigma: float = 5.0,
     flatten_window_length: int = 401,
@@ -780,6 +784,7 @@ def fetch_and_plot(
     sector selection in the default workflow, but avoids accidental under-sampling.
     """
     started_at = perf_counter()
+    cache_dir = cache_dir or _DEFAULT_CACHE_DIR
     run_started_dt = datetime.now(tz=timezone.utc)
     run_started_utc = run_started_dt.isoformat()
     preprocess_mode = _resolve_preprocess_mode(preprocess_mode)
@@ -1420,11 +1425,9 @@ def fetch_and_plot(
     runtime_seconds = perf_counter() - started_at
     config_payload: dict[str, str | int | float | bool] = {
         "target": target,
-        "cache_dir": str(cache_dir),
         "refresh_cache": bool(refresh_cache),
         "outlier_sigma": float(outlier_sigma),
         "flatten_window_length": int(flatten_window_length),
-        "max_download_files": int(max_download_files) if max_download_files is not None else -1,
         "preprocess_enabled": bool(preprocess_enabled),
         "no_flatten": bool(no_flatten),
         "preprocess_mode": preprocess_mode,
@@ -1510,9 +1513,6 @@ def fetch_and_plot(
         outlier_sigma,
         flatten_window_length,
         no_flatten,
-    )
-    LOGGER.info(
-        "Max download files: %s", max_download_files if max_download_files is not None else "all"
     )
     LOGGER.info("Author filter: %s", authors if authors else "all")
     LOGGER.info("Plot mode: %s", plot_mode)

@@ -123,12 +123,13 @@ Important note: "When implementing the step explain the theory behind the milest
 - Theory note: document consistency principle and reduced ambiguity in CLI semantics.
 - Implemented in `src/exohunt/cli.py`, `src/exohunt/pipeline.py`, `README.md`, and test fixtures in `tests/`.
 
-20. [Planned] [Refactor] Remove fixed operational knobs from user config
+20. [Done] [Refactor] Remove fixed operational knobs from user config
 - Remove configurable `cache_dir` (fixed internal path).
 - Remove configurable `max_download_files` (always unlimited in standard workflow).
 - Keep internal implementation support only if needed for tests/debug.
 - Exit criteria: these parameters are absent from user-facing presets, schema, and help.
 - Theory note: explain why non-decision knobs should not be user-facing defaults.
+- Implemented in `src/exohunt/cli.py` and `src/exohunt/pipeline.py` with fixed internal defaults for cache location and download limits.
 
 21. [Planned] [Engineering] Implement config schema + resolver
 - Add versioned config schema and strict validation.
