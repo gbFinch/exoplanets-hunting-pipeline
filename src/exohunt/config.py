@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -15,6 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 _ALLOWED_MODE_VALUES = {"stitched", "per-sector"}
 BUILTIN_PRESET_PACK_VERSION = 1
+LOGGER = logging.getLogger(__name__)
 
 
 class ConfigValidationError(ValueError):
@@ -194,6 +196,29 @@ _BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
     },
 }
 
+_DEPRECATED_KEY_MESSAGES = {
+    "ingest.sectors": (
+        "ingest sector filtering has been removed; exohunt now ingests all sectors."
+    ),
+    "plot.time_start_btjd": (
+        "plot time-window and sector filters have been removed; "
+        "use plot.mode=stitched or plot.mode=per-sector."
+    ),
+    "plot.time_end_btjd": (
+        "plot time-window and sector filters have been removed; "
+        "use plot.mode=stitched or plot.mode=per-sector."
+    ),
+    "plot.sectors": (
+        "plot time-window and sector filters have been removed; "
+        "use plot.mode=stitched or plot.mode=per-sector."
+    ),
+    "cache_dir": "cache_dir has been removed from user config; use fixed internal cache paths.",
+    "max_download_files": (
+        "max_download_files has been removed from user config; "
+        "standard workflow now uses full ingest without download caps."
+    ),
+}
+
 
 def list_builtin_presets() -> tuple[str, ...]:
     return tuple(sorted(_BUILTIN_PRESETS))
@@ -275,6 +300,11 @@ def _deep_merge(
 ) -> None:
     for key, value in patch.items():
         if key not in schema:
+            visible_scope = scope.split(".", 1)[1] if "." in scope else ""
+            normalized = f"{visible_scope}.{key}".strip(".")
+            deprecation_message = _DEPRECATED_KEY_MESSAGES.get(normalized)
+            if deprecation_message is not None:
+                raise ConfigValidationError(f"{deprecation_message} (key: {scope}.{key})")
             raise ConfigValidationError(f"Unknown config key at {scope}.{key}")
         if isinstance(schema[key], dict):
             if not isinstance(value, Mapping):
@@ -298,6 +328,7 @@ def _normalize_mode(raw: Any, *, key_path: str) -> str:
         )
     value = raw.strip().lower()
     if value == "global":
+        LOGGER.warning("Deprecated mode value 'global' for %s; using 'stitched'.", key_path)
         return "stitched"
     if value not in _ALLOWED_MODE_VALUES:
         raise ConfigValidationError(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import logging
 import pytest
 
 from exohunt.config import (
@@ -60,7 +61,7 @@ def test_resolve_runtime_config_rejects_unknown_keys(tmp_path: Path):
             [
                 "schema_version = 1",
                 "[plot]",
-                "time_start_btjd = 100.0",
+                "foo = 100.0",
             ]
         )
         + "\n",
@@ -82,12 +83,14 @@ def test_resolve_runtime_config_rejects_invalid_mode_coupling():
 
 
 def test_resolve_runtime_config_maps_global_to_stitched():
-    cfg = resolve_runtime_config(
-        cli_overrides={
-            "preprocess": {"mode": "global"},
-        }
-    )
+    cfg = resolve_runtime_config(cli_overrides={"preprocess": {"mode": "global"}})
     assert cfg.preprocess.mode == "stitched"
+
+
+def test_resolve_runtime_config_logs_deprecated_global_mapping(caplog: pytest.LogCaptureFixture):
+    caplog.set_level(logging.WARNING)
+    resolve_runtime_config(cli_overrides={"preprocess": {"mode": "global"}})
+    assert "Deprecated mode value 'global'" in caplog.text
 
 
 def test_resolve_runtime_config_requires_odd_flatten_window_length():
@@ -97,6 +100,27 @@ def test_resolve_runtime_config_requires_odd_flatten_window_length():
                 "preprocess": {"flatten_window_length": 400},
             }
         )
+
+
+def test_resolve_runtime_config_reports_removed_sector_filter(tmp_path: Path):
+    config_path = tmp_path / "invalid-sectors.toml"
+    config_path.write_text("[ingest]\nsectors = [14, 15]\n", encoding="utf-8")
+    with pytest.raises(ConfigValidationError, match="ingests all sectors"):
+        resolve_runtime_config(config_path=config_path)
+
+
+def test_resolve_runtime_config_reports_removed_plot_filters(tmp_path: Path):
+    config_path = tmp_path / "invalid-plot.toml"
+    config_path.write_text("[plot]\ntime_start_btjd = 100.0\n", encoding="utf-8")
+    with pytest.raises(ConfigValidationError, match="plot.mode=stitched or plot.mode=per-sector"):
+        resolve_runtime_config(config_path=config_path)
+
+
+def test_resolve_runtime_config_reports_removed_cache_dir(tmp_path: Path):
+    config_path = tmp_path / "invalid-cache.toml"
+    config_path.write_text('cache_dir = "outputs/cache/lightcurves"\n', encoding="utf-8")
+    with pytest.raises(ConfigValidationError, match="cache_dir has been removed"):
+        resolve_runtime_config(config_path=config_path)
 
 
 def test_builtin_presets_available():
