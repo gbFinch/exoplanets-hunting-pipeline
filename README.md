@@ -84,6 +84,15 @@ Each run also writes preprocessing quality metrics to:
 - `outputs/<target>/metrics/preprocessing_summary.csv` (per-target run table)
 - `outputs/<target>/metrics/preprocessing_summary.json` (latest per-target summary)
 
+Each run writes a reproducibility manifest to:
+- `outputs/<target>/manifests/<target>__manifest_<run-key>.json`
+- `outputs/manifests/run_manifest_index.csv` (global run index)
+- `outputs/<target>/manifests/run_manifest_index.csv` (per-target run index)
+
+Manifest payloads include run config, package versions, timestamps, and stable
+comparison keys (`comparison_key`, `config_hash`, `data_fingerprint_hash`) so
+reruns can be compared target-by-target.
+
 Build preprocessing method comparison report (selects recommended defaults by cadence/span):
 
 ```bash

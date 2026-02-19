@@ -127,6 +127,11 @@ def test_fetch_and_plot_uses_cache(monkeypatch, tmp_path):
     assert (
         tmp_path / "outputs/tic_261136679/metrics/preprocessing_summary.json"
     ).exists()
+    manifest_dir = tmp_path / "outputs/tic_261136679/manifests"
+    assert manifest_dir.exists()
+    assert len(list(manifest_dir.glob("*.json"))) == 1
+    assert (tmp_path / "outputs/manifests/run_manifest_index.csv").exists()
+    assert (manifest_dir / "run_manifest_index.csv").exists()
 
 
 def test_fetch_and_plot_uses_prepared_cache(monkeypatch, tmp_path):
@@ -351,6 +356,48 @@ def test_fetch_and_plot_reuses_metrics_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "compute_preprocessing_quality_metrics", _should_not_compute)
     second_output = fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
     assert second_output is None
+
+
+def test_fetch_and_plot_manifest_comparison_key_stable_for_same_settings(monkeypatch, tmp_path):
+    target = "TIC 261136679"
+    cache_dir = tmp_path / "cache"
+    prepared_cache = _prepared_cache_path(
+        target=target,
+        cache_dir=cache_dir,
+        outlier_sigma=5.0,
+        flatten_window_length=401,
+        no_flatten=False,
+    )
+    prepared_cache.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        prepared_cache,
+        time=np.asarray([1.0, 2.0, 3.0, 4.0]),
+        flux=np.asarray([1.0, 0.999, 1.001, 1.0]),
+    )
+
+    def _unexpected_search(*args, **kwargs):
+        raise AssertionError("search_lightcurve should not be called on prepared cache hit")
+
+    monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
+    monkeypatch.chdir(tmp_path)
+
+    fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
+    fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
+
+    manifest_dir = tmp_path / "outputs/tic_261136679/manifests"
+    manifest_files = sorted(manifest_dir.glob("*.json"))
+    assert len(manifest_files) == 2
+    first = json.loads(manifest_files[0].read_text(encoding="utf-8"))
+    second = json.loads(manifest_files[1].read_text(encoding="utf-8"))
+    assert first["comparison"]["comparison_key"] == second["comparison"]["comparison_key"]
+    assert first["comparison"]["config_hash"] == second["comparison"]["config_hash"]
+    assert first["comparison"]["data_fingerprint_hash"] == second["comparison"]["data_fingerprint_hash"]
+
+    global_index_path = tmp_path / "outputs/manifests/run_manifest_index.csv"
+    with global_index_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 2
+    assert rows[0]["comparison_key"] == rows[1]["comparison_key"]
 
 
 def test_fetch_and_plot_generates_plot_when_time_window_provided(monkeypatch, tmp_path):

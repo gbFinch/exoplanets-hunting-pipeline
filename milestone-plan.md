@@ -85,10 +85,11 @@ Important note: "When implementing the step explain the theory behind the milest
 - Exit criteria: tests cover core analysis flow and pass in CI/local venv.
 - Implemented in `tests/test_analysis_modules.py` and fixture `tests/fixtures/fetch_pipeline_expected.json`.
 
-15. [Pending] [Engineering] Add run manifest and reproducibility tracking
+15. [Done] [Engineering] Add run manifest and reproducibility tracking
 - Save run config, package versions, and timestamps per analysis run.
 - Ensure reruns can be compared target-by-target.
 - Exit criteria: each run has a manifest that can recreate analysis settings.
+- Implemented in `src/exohunt/pipeline.py` with coverage in `tests/test_smoke.py`.
 
 16. [Pending] [Engineering] Add batch processing workflow
 - Run analysis for many TIC IDs from an input list.

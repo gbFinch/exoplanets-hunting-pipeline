@@ -6,7 +6,10 @@ import json
 import logging
 from dataclasses import asdict
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
+import platform
+import sys
 from time import perf_counter
 
 import lightkurve as lk
@@ -106,6 +109,152 @@ _VETTING_ALIAS_TOLERANCE_FRACTION = 0.02
 _PARAMETER_STELLAR_DENSITY_KG_M3 = 1408.0
 _PARAMETER_DURATION_RATIO_MIN = 0.05
 _PARAMETER_DURATION_RATIO_MAX = 1.8
+
+_MANIFEST_INDEX_COLUMNS = [
+    "run_started_utc",
+    "run_finished_utc",
+    "target",
+    "manifest_run_key",
+    "comparison_key",
+    "config_hash",
+    "data_fingerprint_hash",
+    "preprocess_mode",
+    "data_source",
+    "n_points_raw",
+    "n_points_prepared",
+    "time_min_btjd",
+    "time_max_btjd",
+    "bls_enabled",
+    "bls_mode",
+    "candidate_csv_count",
+    "candidate_json_count",
+    "diagnostic_asset_count",
+    "manifest_path",
+]
+
+
+def _hash_payload(payload: dict[str, object]) -> str:
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha1(encoded).hexdigest()[:16]
+
+
+def _safe_package_version(name: str) -> str:
+    try:
+        return package_version(name)
+    except PackageNotFoundError:
+        return "not-installed"
+    except Exception:
+        return "unknown"
+
+
+def _runtime_version_map() -> dict[str, str]:
+    return {
+        "python": platform.python_version(),
+        "exohunt": _safe_package_version("exohunt"),
+        "numpy": _safe_package_version("numpy"),
+        "astropy": _safe_package_version("astropy"),
+        "lightkurve": _safe_package_version("lightkurve"),
+        "matplotlib": _safe_package_version("matplotlib"),
+        "pandas": _safe_package_version("pandas"),
+        "plotly": _safe_package_version("plotly"),
+    }
+
+
+def _write_manifest_index_row(path: Path, row: dict[str, str | int | float | bool]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists()
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_MANIFEST_INDEX_COLUMNS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
+def _write_run_manifest(
+    *,
+    target: str,
+    run_started_utc: str,
+    run_finished_utc: str,
+    runtime_seconds: float,
+    config_payload: dict[str, str | int | float | bool],
+    data_payload: dict[str, str | int | float | bool],
+    artifacts_payload: dict[str, object],
+) -> tuple[Path, Path, Path]:
+    """Persist run manifest for reproducibility and run-to-run comparison.
+
+    Theory: reproducibility depends on three dimensions: settings, input-data
+    summary, and software environment. Hashing settings+data creates a stable
+    comparison key for grouping reruns target-by-target, while per-run manifests
+    preserve exact timestamps and produced artifacts.
+    """
+    config_hash = _hash_payload(dict(config_payload))
+    data_fingerprint_hash = _hash_payload(dict(data_payload))
+    comparison_key = _hash_payload(
+        {
+            "target": target,
+            "config_hash": config_hash,
+            "data_fingerprint_hash": data_fingerprint_hash,
+        }
+    )
+    manifest_run_key = _hash_payload(
+        {"comparison_key": comparison_key, "run_started_utc": run_started_utc}
+    )
+
+    target_manifest_dir = _target_artifact_dir(target, "manifests")
+    target_manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = target_manifest_dir / f"{_safe_target_name(target)}__manifest_{manifest_run_key}.json"
+
+    manifest_payload = {
+        "schema_version": 1,
+        "target": target,
+        "run": {
+            "run_started_utc": run_started_utc,
+            "run_finished_utc": run_finished_utc,
+            "runtime_seconds": float(runtime_seconds),
+        },
+        "comparison": {
+            "comparison_key": comparison_key,
+            "config_hash": config_hash,
+            "data_fingerprint_hash": data_fingerprint_hash,
+        },
+        "config": config_payload,
+        "data_summary": data_payload,
+        "artifacts": artifacts_payload,
+        "versions": _runtime_version_map(),
+        "platform": {
+            "python_executable": sys.executable,
+            "platform": platform.platform(),
+        },
+    }
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    index_row: dict[str, str | int | float | bool] = {
+        "run_started_utc": run_started_utc,
+        "run_finished_utc": run_finished_utc,
+        "target": target,
+        "manifest_run_key": manifest_run_key,
+        "comparison_key": comparison_key,
+        "config_hash": config_hash,
+        "data_fingerprint_hash": data_fingerprint_hash,
+        "preprocess_mode": str(config_payload["preprocess_mode"]),
+        "data_source": str(data_payload["data_source"]),
+        "n_points_raw": int(data_payload["n_points_raw"]),
+        "n_points_prepared": int(data_payload["n_points_prepared"]),
+        "time_min_btjd": float(data_payload["time_min_btjd"]),
+        "time_max_btjd": float(data_payload["time_max_btjd"]),
+        "bls_enabled": bool(config_payload["run_bls"]),
+        "bls_mode": str(config_payload["bls_mode"]),
+        "candidate_csv_count": int(artifacts_payload["candidate_csv_count"]),
+        "candidate_json_count": int(artifacts_payload["candidate_json_count"]),
+        "diagnostic_asset_count": int(artifacts_payload["diagnostic_asset_count"]),
+        "manifest_path": str(manifest_path),
+    }
+
+    global_index_path = Path("outputs/manifests/run_manifest_index.csv")
+    target_index_path = target_manifest_dir / "run_manifest_index.csv"
+    _write_manifest_index_row(global_index_path, index_row)
+    _write_manifest_index_row(target_index_path, index_row)
+    return manifest_path, global_index_path, target_index_path
 
 
 def _metrics_cache_path(
@@ -382,6 +531,8 @@ def fetch_and_plot(
     bls_mode: str = "stitched",
 ) -> Path | None:
     started_at = perf_counter()
+    run_started_dt = datetime.now(tz=timezone.utc)
+    run_started_utc = run_started_dt.isoformat()
     selected_sectors = _parse_sectors(sectors)
     selected_authors = _parse_authors(authors)
     selected_plot_sectors = _parse_sectors(plot_sectors)
@@ -659,6 +810,7 @@ def fetch_and_plot(
     )
 
     bls_candidates = []
+    candidate_output_key: str | None = None
     candidate_csv_paths: list[Path] = []
     candidate_json_paths: list[Path] = []
     diagnostic_assets: list[tuple[Path, Path]] = []
@@ -994,6 +1146,71 @@ def fetch_and_plot(
             "Step 7/7: skipping plot generation (set --plot-time-start/--plot-time-end or --plot-sectors to enable)"
         )
 
+    run_finished_utc = datetime.now(tz=timezone.utc).isoformat()
+    runtime_seconds = perf_counter() - started_at
+    config_payload: dict[str, str | int | float | bool] = {
+        "target": target,
+        "cache_dir": str(cache_dir),
+        "refresh_cache": bool(refresh_cache),
+        "outlier_sigma": float(outlier_sigma),
+        "flatten_window_length": int(flatten_window_length),
+        "max_download_files": int(max_download_files) if max_download_files is not None else -1,
+        "no_flatten": bool(no_flatten),
+        "preprocess_mode": preprocess_mode,
+        "sectors": sectors if sectors else "all",
+        "authors": authors if authors else "all",
+        "interactive_html": bool(interactive_html),
+        "interactive_max_points": int(interactive_max_points),
+        "plot_time_start": float(plot_time_start) if plot_time_start is not None else float("nan"),
+        "plot_time_end": float(plot_time_end) if plot_time_end is not None else float("nan"),
+        "plot_sectors": plot_sectors if plot_sectors else "all",
+        "run_bls": bool(run_bls),
+        "bls_mode": bls_mode,
+        "bls_period_min_days": float(bls_period_min_days),
+        "bls_period_max_days": float(bls_period_max_days),
+        "bls_duration_min_hours": float(bls_duration_min_hours),
+        "bls_duration_max_hours": float(bls_duration_max_hours),
+        "bls_n_periods": int(bls_n_periods),
+        "bls_n_durations": int(bls_n_durations),
+        "bls_top_n": int(bls_top_n),
+    }
+    data_payload: dict[str, str | int | float | bool] = {
+        "target": target,
+        "data_source": data_source,
+        "n_points_raw": int(n_points_raw),
+        "n_points_prepared": int(n_points_prepared),
+        "time_min_btjd": float(time_min),
+        "time_max_btjd": float(time_max),
+        "raw_cache_path": str(raw_cache_path),
+        "prepared_cache_path": str(prepared_cache_path),
+    }
+    artifacts_payload: dict[str, object] = {
+        "metrics_csv_path": str(metrics_csv_path),
+        "metrics_json_path": str(metrics_json_path),
+        "metrics_cache_path": str(metrics_cache_path),
+        "plot_path": str(output_path) if output_path is not None else "",
+        "interactive_plot_path": str(interactive_path) if interactive_path is not None else "",
+        "candidate_output_key": candidate_output_key if candidate_output_key is not None else "",
+        "candidate_csv_count": int(len(candidate_csv_paths)),
+        "candidate_json_count": int(len(candidate_json_paths)),
+        "candidate_csv_paths": [str(path) for path in candidate_csv_paths],
+        "candidate_json_paths": [str(path) for path in candidate_json_paths],
+        "diagnostic_asset_count": int(len(diagnostic_assets)),
+        "diagnostic_assets": [
+            {"periodogram_path": str(periodogram), "phasefold_path": str(phasefold)}
+            for periodogram, phasefold in diagnostic_assets
+        ],
+    }
+    manifest_path, manifest_global_index_path, manifest_target_index_path = _write_run_manifest(
+        target=target,
+        run_started_utc=run_started_utc,
+        run_finished_utc=run_finished_utc,
+        runtime_seconds=runtime_seconds,
+        config_payload=config_payload,
+        data_payload=data_payload,
+        artifacts_payload=artifacts_payload,
+    )
+
     LOGGER.info("--------------------------------")
     LOGGER.info("Target: %s", target)
     LOGGER.info("Preprocess mode: %s", preprocess_mode)
@@ -1069,7 +1286,7 @@ def fetch_and_plot(
                 vetting.pass_alias_harmonic,
                 vetting.vetting_reasons,
             )
-    LOGGER.info("Total runtime: %.2fs", perf_counter() - started_at)
+    LOGGER.info("Total runtime: %.2fs", runtime_seconds)
     if output_path is not None:
         LOGGER.info("Saved plot: %s", output_path)
     else:
@@ -1079,6 +1296,9 @@ def fetch_and_plot(
     LOGGER.info("Saved preprocessing metrics CSV: %s", metrics_csv_path)
     LOGGER.info("Saved preprocessing metrics JSON: %s", metrics_json_path)
     LOGGER.info("Metrics cache file: %s", metrics_cache_path)
+    LOGGER.info("Saved run manifest JSON: %s", manifest_path)
+    LOGGER.info("Saved run manifest index CSV (global): %s", manifest_global_index_path)
+    LOGGER.info("Saved run manifest index CSV (target): %s", manifest_target_index_path)
     LOGGER.info("Saved BLS candidate CSV files: %d", len(candidate_csv_paths))
     for path in candidate_csv_paths:
         LOGGER.info("  - %s", path)
