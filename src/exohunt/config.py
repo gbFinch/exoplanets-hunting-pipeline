@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import lru_cache
 import hashlib
+from importlib import resources
 import json
 import logging
 from pathlib import Path
@@ -109,93 +111,6 @@ _DEFAULTS: dict[str, Any] = {
     },
 }
 
-_BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
-    "quicklook": {
-        "io": {"refresh_cache": False},
-        "ingest": {"authors": ["SPOC"]},
-        "preprocess": {
-            "enabled": True,
-            "mode": "per-sector",
-            "outlier_sigma": 6.0,
-            "flatten_window_length": 201,
-            "flatten": True,
-        },
-        "plot": {
-            "enabled": True,
-            "mode": "stitched",
-            "interactive_html": False,
-            "interactive_max_points": 120_000,
-        },
-        "bls": {
-            "enabled": True,
-            "mode": "stitched",
-            "period_min_days": 0.8,
-            "period_max_days": 12.0,
-            "duration_min_hours": 0.75,
-            "duration_max_hours": 8.0,
-            "n_periods": 1200,
-            "n_durations": 10,
-            "top_n": 3,
-        },
-    },
-    "science-default": {
-        "io": {"refresh_cache": False},
-        "ingest": {"authors": ["SPOC"]},
-        "preprocess": {
-            "enabled": True,
-            "mode": "per-sector",
-            "outlier_sigma": 5.0,
-            "flatten_window_length": 401,
-            "flatten": True,
-        },
-        "plot": {
-            "enabled": False,
-            "mode": "stitched",
-            "interactive_html": False,
-            "interactive_max_points": 200_000,
-        },
-        "bls": {
-            "enabled": True,
-            "mode": "stitched",
-            "period_min_days": 0.5,
-            "period_max_days": 20.0,
-            "duration_min_hours": 0.5,
-            "duration_max_hours": 10.0,
-            "n_periods": 2000,
-            "n_durations": 12,
-            "top_n": 5,
-        },
-    },
-    "deep-search": {
-        "io": {"refresh_cache": False},
-        "ingest": {"authors": ["SPOC"]},
-        "preprocess": {
-            "enabled": True,
-            "mode": "per-sector",
-            "outlier_sigma": 4.0,
-            "flatten_window_length": 801,
-            "flatten": True,
-        },
-        "plot": {
-            "enabled": False,
-            "mode": "stitched",
-            "interactive_html": True,
-            "interactive_max_points": 300_000,
-        },
-        "bls": {
-            "enabled": True,
-            "mode": "stitched",
-            "period_min_days": 0.3,
-            "period_max_days": 40.0,
-            "duration_min_hours": 0.5,
-            "duration_max_hours": 12.0,
-            "n_periods": 8000,
-            "n_durations": 20,
-            "top_n": 10,
-        },
-    },
-}
-
 _DEPRECATED_KEY_MESSAGES = {
     "ingest.sectors": (
         "ingest sector filtering has been removed; exohunt now ingests all sectors."
@@ -221,7 +136,34 @@ _DEPRECATED_KEY_MESSAGES = {
 
 
 def list_builtin_presets() -> tuple[str, ...]:
-    return tuple(sorted(_BUILTIN_PRESETS))
+    return tuple(sorted(_load_builtin_preset_documents()))
+
+
+@lru_cache(maxsize=1)
+def _load_builtin_preset_documents() -> dict[str, dict[str, Any]]:
+    presets: dict[str, dict[str, Any]] = {}
+    preset_dir = resources.files("exohunt.presets")
+    for item in preset_dir.iterdir():
+        if item.name.startswith(".") or Path(item.name).suffix != ".toml":
+            continue
+        with item.open("rb") as handle:
+            payload = tomllib.load(handle)
+        if not isinstance(payload, dict):
+            raise ConfigValidationError(f"Invalid preset document format: {item.name}")
+        presets[Path(item.name).stem] = payload
+    if not presets:
+        raise ConfigValidationError("No built-in preset files found under exohunt.presets.")
+    return presets
+
+
+def _load_builtin_preset_values() -> dict[str, dict[str, Any]]:
+    values: dict[str, dict[str, Any]] = {}
+    for name, payload in _load_builtin_preset_documents().items():
+        merged_payload = deepcopy(payload)
+        merged_payload.pop("schema_version", None)
+        merged_payload.pop("preset", None)
+        values[name] = merged_payload
+    return values
 
 
 def _stable_hash(payload: Mapping[str, Any]) -> str:
@@ -230,7 +172,7 @@ def _stable_hash(payload: Mapping[str, Any]) -> str:
 
 
 def get_builtin_preset_metadata(name: str) -> tuple[str, int, str]:
-    preset_values = _BUILTIN_PRESETS.get(name)
+    preset_values = _load_builtin_preset_documents().get(name)
     if preset_values is None:
         available = ", ".join(list_builtin_presets())
         raise ConfigValidationError(f"Unknown preset: {name!r}. Available presets: {available}.")
@@ -278,13 +220,14 @@ def _dump_toml(payload: Mapping[str, Any]) -> str:
 
 
 def write_preset_config(*, preset_name: str, out_path: Path) -> Path:
-    if preset_name not in _BUILTIN_PRESETS:
+    preset_doc = _load_builtin_preset_documents().get(preset_name)
+    if preset_doc is None:
         available = ", ".join(list_builtin_presets())
         raise ConfigValidationError(
             f"Unknown preset: {preset_name!r}. Available presets: {available}."
         )
     payload = deepcopy(_DEFAULTS)
-    _deep_merge(payload, _BUILTIN_PRESETS[preset_name], schema=_DEFAULTS, scope="preset")
+    _deep_merge(payload, preset_doc, schema=_DEFAULTS, scope="preset")
     payload["preset"] = preset_name
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(_dump_toml(payload), encoding="utf-8")
@@ -424,7 +367,7 @@ def resolve_runtime_config(
     """
     merged: dict[str, Any] = deepcopy(_DEFAULTS)
     schema = _DEFAULTS
-    presets = dict(preset_values or _BUILTIN_PRESETS)
+    presets = dict(preset_values or _load_builtin_preset_values())
 
     file_payload: dict[str, Any] = {}
     file_preset: str | None = None

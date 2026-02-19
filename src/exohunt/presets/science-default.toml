@@ -1,0 +1,32 @@
+schema_version = 1
+preset = "science-default"
+
+[io]
+refresh_cache = false
+
+[ingest]
+authors = ["SPOC"]
+
+[preprocess]
+enabled = true
+mode = "per-sector"
+outlier_sigma = 5.0
+flatten_window_length = 401
+flatten = true
+
+[plot]
+enabled = false
+mode = "stitched"
+interactive_html = false
+interactive_max_points = 200000
+
+[bls]
+enabled = true
+mode = "stitched"
+period_min_days = 0.5
+period_max_days = 20.0
+duration_min_hours = 0.5
+duration_max_hours = 10.0
+n_periods = 2000
+n_durations = 12
+top_n = 5
