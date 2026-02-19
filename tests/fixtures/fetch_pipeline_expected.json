@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "target": "TIC FIXED 1",
+    "preprocess_mode": "global",
+    "data_source": "raw-cache",
+    "bls_enabled": true,
+    "parameter_estimation_enabled": true,
+    "parameter_stellar_density_kg_m3": 1408.0,
+    "parameter_duration_ratio_min": 0.05,
+    "parameter_duration_ratio_max": 1.8
+  },
+  "candidate_checks": [
+    {
+      "rank": 1,
+      "pass_min_transit_count": true,
+      "pass_odd_even_depth": true,
+      "pass_alias_harmonic": true,
+      "vetting_pass": true,
+      "pass_duration_plausibility": true
+    },
+    {
+      "rank": 2,
+      "pass_min_transit_count": true,
+      "pass_odd_even_depth": true,
+      "pass_alias_harmonic": true,
+      "vetting_pass": true,
+      "pass_duration_plausibility": true
+    }
+  ]
+}

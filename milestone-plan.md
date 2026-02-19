@@ -79,10 +79,11 @@ Important note: "When implementing the step explain the theory behind the milest
 - Exit criteria: candidate records include parameter estimates and explicit assumptions.
 - Implemented in `src/exohunt/parameters.py` and integrated into candidate outputs in `src/exohunt/pipeline.py`.
 
-14. [Pending] [Validation] Expand automated tests for analysis modules
+14. [Done] [Validation] Expand automated tests for analysis modules
 - Add unit tests for preprocessing metrics and BLS ranking logic.
 - Add integration tests with fixed fixtures for reproducibility.
 - Exit criteria: tests cover core analysis flow and pass in CI/local venv.
+- Implemented in `tests/test_analysis_modules.py` and fixture `tests/fixtures/fetch_pipeline_expected.json`.
 
 15. [Pending] [Engineering] Add run manifest and reproducibility tracking
 - Save run config, package versions, and timestamps per analysis run.
