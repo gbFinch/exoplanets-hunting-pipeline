@@ -69,6 +69,7 @@ _PREPROCESSING_SUMMARY_COLUMNS = [
     "run_utc",
     "target",
     "preprocess_mode",
+    "preprocess_enabled",
     "data_source",
     "outlier_sigma",
     "flatten_window_length",
@@ -141,6 +142,30 @@ _BATCH_STATUS_COLUMNS = [
     "runtime_seconds",
     "output_path",
 ]
+
+
+_ALLOWED_TWO_TRACK_MODES = {"stitched", "per-sector"}
+
+
+def _resolve_preprocess_mode(mode: str) -> str:
+    # Theory (milestone 19): shared, centralized mode normalization avoids
+    # semantic drift across preprocess/plot/BLS controls.
+    value = mode.strip().lower()
+    if value == "global":
+        LOGGER.warning("Preprocess mode 'global' is deprecated; using 'stitched'.")
+        return "stitched"
+    if value not in _ALLOWED_TWO_TRACK_MODES:
+        raise RuntimeError(
+            f"Unsupported preprocess mode: {mode}. Expected one of: stitched, per-sector."
+        )
+    return value
+
+
+def _resolve_two_track_mode(mode: str, *, label: str) -> str:
+    value = mode.strip().lower()
+    if value not in _ALLOWED_TWO_TRACK_MODES:
+        raise RuntimeError(f"Unsupported {label}: {mode}. Expected one of: stitched, per-sector.")
+    return value
 
 
 @dataclass(frozen=True)
@@ -285,6 +310,7 @@ def _metrics_cache_path(
     target: str,
     cache_dir: Path,
     preprocess_mode: str,
+    preprocess_enabled: bool,
     outlier_sigma: float,
     flatten_window_length: int,
     no_flatten: bool,
@@ -300,6 +326,7 @@ def _metrics_cache_path(
         "version": 1,
         "target": target,
         "preprocess_mode": preprocess_mode,
+        "preprocess_enabled": bool(preprocess_enabled),
         "outlier_sigma": round(float(outlier_sigma), 6),
         "flatten_window_length": int(flatten_window_length),
         "no_flatten": bool(no_flatten),
@@ -339,6 +366,7 @@ def _save_cached_metrics(metrics_cache_path: Path, metrics: dict[str, float | in
 def _write_preprocessing_metrics(
     target: str,
     preprocess_mode: str,
+    preprocess_enabled: bool,
     outlier_sigma: float,
     flatten_window_length: int,
     no_flatten: bool,
@@ -355,6 +383,7 @@ def _write_preprocessing_metrics(
         "run_utc": run_utc,
         "target": target,
         "preprocess_mode": preprocess_mode,
+        "preprocess_enabled": bool(preprocess_enabled),
         "data_source": data_source,
         "outlier_sigma": float(outlier_sigma),
         "flatten_window_length": int(flatten_window_length),
@@ -411,6 +440,7 @@ def _stitch_segments(lightcurves: list[lk.LightCurve]) -> tuple[lk.LightCurve, l
 def _candidate_output_key(
     target: str,
     preprocess_mode: str,
+    preprocess_enabled: bool,
     outlier_sigma: float,
     flatten_window_length: int,
     no_flatten: bool,
@@ -431,6 +461,7 @@ def _candidate_output_key(
         "version": 1,
         "target": target,
         "preprocess_mode": preprocess_mode,
+        "preprocess_enabled": bool(preprocess_enabled),
         "outlier_sigma": round(float(outlier_sigma), 6),
         "flatten_window_length": int(flatten_window_length),
         "no_flatten": bool(no_flatten),
@@ -589,6 +620,7 @@ def run_batch_analysis(
     outlier_sigma: float = 5.0,
     flatten_window_length: int = 401,
     max_download_files: int | None = None,
+    preprocess_enabled: bool = True,
     no_flatten: bool = False,
     preprocess_mode: str = "per-sector",
     authors: str | None = None,
@@ -657,6 +689,7 @@ def run_batch_analysis(
                 outlier_sigma=outlier_sigma,
                 flatten_window_length=flatten_window_length,
                 max_download_files=max_download_files,
+                preprocess_enabled=preprocess_enabled,
                 no_flatten=no_flatten,
                 preprocess_mode=preprocess_mode,
                 authors=authors,
@@ -722,6 +755,7 @@ def fetch_and_plot(
     outlier_sigma: float = 5.0,
     flatten_window_length: int = 401,
     max_download_files: int | None = None,
+    preprocess_enabled: bool = True,
     no_flatten: bool = False,
     preprocess_mode: str = "per-sector",
     authors: str | None = None,
@@ -748,6 +782,9 @@ def fetch_and_plot(
     started_at = perf_counter()
     run_started_dt = datetime.now(tz=timezone.utc)
     run_started_utc = run_started_dt.isoformat()
+    preprocess_mode = _resolve_preprocess_mode(preprocess_mode)
+    plot_mode = _resolve_two_track_mode(plot_mode, label="plot mode")
+    bls_mode = _resolve_two_track_mode(bls_mode, label="BLS mode")
     selected_authors = _parse_authors(authors)
     boundaries: list[float] = []
     data_source = "download"
@@ -755,7 +792,7 @@ def fetch_and_plot(
     raw_segments_for_plot: list[LightCurveSegment] = []
     prepared_segments_for_plot: list[LightCurveSegment] = []
 
-    if preprocess_mode == "global":
+    if preprocess_mode == "stitched":
         raw_cache_path = _cache_path(target, cache_dir)
         prepared_cache_path = _prepared_cache_path(
             target=target,
@@ -768,7 +805,7 @@ def fetch_and_plot(
         lc = None
         lc_prepared = None
         LOGGER.info("Step 1/5: checking cache")
-        if prepared_cache_path.exists() and not refresh_cache:
+        if preprocess_enabled and prepared_cache_path.exists() and not refresh_cache:
             try:
                 step_started = perf_counter()
                 lc_prepared = _load_npz_lightcurve(prepared_cache_path)
@@ -829,20 +866,26 @@ def fetch_and_plot(
             LOGGER.info("Writing raw cache: %s", raw_cache_path)
             _save_npz_lightcurve(raw_cache_path, lc)
 
-        if lc_prepared is None:
-            LOGGER.info("Step 4/5: preprocessing light curve")
-            step_started = perf_counter()
-            lc_prepared = prepare_lightcurve(
-                lc,
-                outlier_sigma=outlier_sigma,
-                flatten_window_length=flatten_window_length,
-                apply_flatten=not no_flatten,
-            )
-            LOGGER.info("Preprocessing complete in %.2fs", perf_counter() - step_started)
-            LOGGER.info("Writing prepared cache: %s", prepared_cache_path)
-            _save_npz_lightcurve(prepared_cache_path, lc_prepared)
-        elif lc is None:
-            lc = lc_prepared
+        if preprocess_enabled:
+            if lc_prepared is None:
+                LOGGER.info("Step 4/5: preprocessing light curve")
+                step_started = perf_counter()
+                lc_prepared = prepare_lightcurve(
+                    lc,
+                    outlier_sigma=outlier_sigma,
+                    flatten_window_length=flatten_window_length,
+                    apply_flatten=not no_flatten,
+                )
+                LOGGER.info("Preprocessing complete in %.2fs", perf_counter() - step_started)
+                LOGGER.info("Writing prepared cache: %s", prepared_cache_path)
+                _save_npz_lightcurve(prepared_cache_path, lc_prepared)
+            elif lc is None:
+                lc = lc_prepared
+        else:
+            LOGGER.info("Step 4/5: skipping preprocessing (preprocess disabled)")
+            if lc is None and lc_prepared is not None:
+                lc = lc_prepared
+            lc_prepared = lc
     else:
         LOGGER.info("Step 1/5: checking per-segment cache manifest")
         raw_segments: list[LightCurveSegment] = []
@@ -857,25 +900,26 @@ def fetch_and_plot(
             if selected_authors is not None and author not in selected_authors:
                 continue
             raw_path = _segment_raw_cache_path(target, cache_dir, segment_id)
-            prep_path = _segment_prepared_cache_path(
-                target,
-                cache_dir,
-                segment_id,
-                outlier_sigma=outlier_sigma,
-                flatten_window_length=flatten_window_length,
-                no_flatten=no_flatten,
-            )
             try:
-                if prep_path.exists():
-                    prepared_segments.append(
-                        LightCurveSegment(
-                            segment_id=segment_id,
-                            sector=sector,
-                            author=author,
-                            cadence=cadence,
-                            lc=_load_npz_lightcurve(prep_path),
-                        )
+                if preprocess_enabled:
+                    prep_path = _segment_prepared_cache_path(
+                        target,
+                        cache_dir,
+                        segment_id,
+                        outlier_sigma=outlier_sigma,
+                        flatten_window_length=flatten_window_length,
+                        no_flatten=no_flatten,
                     )
+                    if prep_path.exists():
+                        prepared_segments.append(
+                            LightCurveSegment(
+                                segment_id=segment_id,
+                                sector=sector,
+                                author=author,
+                                cadence=cadence,
+                                lc=_load_npz_lightcurve(prep_path),
+                            )
+                        )
                 if raw_path.exists():
                     raw_segments.append(
                         LightCurveSegment(
@@ -931,7 +975,10 @@ def fetch_and_plot(
             data_source = "segment-cache"
             LOGGER.info("Loaded %d raw segments from cache", len(raw_segments))
 
-        if len(prepared_segments) != len(raw_segments):
+        if not preprocess_enabled:
+            LOGGER.info("Step 4/5: skipping preprocessing (preprocess disabled)")
+            prepared_segments = list(raw_segments)
+        elif len(prepared_segments) != len(raw_segments):
             LOGGER.info("Step 4/5: preprocessing segment light curves")
             prep_map = {segment.segment_id: segment for segment in prepared_segments}
             rebuilt_prepared: list[LightCurveSegment] = []
@@ -989,6 +1036,7 @@ def fetch_and_plot(
         target=target,
         cache_dir=cache_dir,
         preprocess_mode=preprocess_mode,
+        preprocess_enabled=preprocess_enabled,
         outlier_sigma=outlier_sigma,
         flatten_window_length=flatten_window_length,
         no_flatten=no_flatten,
@@ -1011,6 +1059,7 @@ def fetch_and_plot(
     metrics_csv_path, metrics_json_path = _write_preprocessing_metrics(
         target=target,
         preprocess_mode=preprocess_mode,
+        preprocess_enabled=preprocess_enabled,
         outlier_sigma=outlier_sigma,
         flatten_window_length=flatten_window_length,
         no_flatten=no_flatten,
@@ -1058,6 +1107,7 @@ def fetch_and_plot(
                     "author": segment.author,
                     "cadence_days": float(segment.cadence),
                     "preprocess_mode": preprocess_mode,
+                    "preprocess_enabled": bool(preprocess_enabled),
                     "data_source": data_source,
                     "outlier_sigma": float(outlier_sigma),
                     "flatten_window_length": int(flatten_window_length),
@@ -1084,6 +1134,7 @@ def fetch_and_plot(
                 segment_key = _candidate_output_key(
                     target=target,
                     preprocess_mode=preprocess_mode,
+                    preprocess_enabled=preprocess_enabled,
                     outlier_sigma=outlier_sigma,
                     flatten_window_length=flatten_window_length,
                     no_flatten=no_flatten,
@@ -1197,6 +1248,7 @@ def fetch_and_plot(
         candidate_output_key = _candidate_output_key(
             target=target,
             preprocess_mode=preprocess_mode,
+            preprocess_enabled=preprocess_enabled,
             outlier_sigma=outlier_sigma,
             flatten_window_length=flatten_window_length,
             no_flatten=no_flatten,
@@ -1217,6 +1269,7 @@ def fetch_and_plot(
             "run_utc": run_utc,
             "target": target,
             "preprocess_mode": preprocess_mode,
+            "preprocess_enabled": bool(preprocess_enabled),
             "data_source": data_source,
             "outlier_sigma": float(outlier_sigma),
             "flatten_window_length": int(flatten_window_length),
@@ -1372,6 +1425,7 @@ def fetch_and_plot(
         "outlier_sigma": float(outlier_sigma),
         "flatten_window_length": int(flatten_window_length),
         "max_download_files": int(max_download_files) if max_download_files is not None else -1,
+        "preprocess_enabled": bool(preprocess_enabled),
         "no_flatten": bool(no_flatten),
         "preprocess_mode": preprocess_mode,
         "authors": authors if authors else "all",
@@ -1430,6 +1484,7 @@ def fetch_and_plot(
     LOGGER.info("--------------------------------")
     LOGGER.info("Target: %s", target)
     LOGGER.info("Preprocess mode: %s", preprocess_mode)
+    LOGGER.info("Preprocess enabled: %s", preprocess_enabled)
     LOGGER.info("Points (raw -> prepared): %d -> %d", n_points_raw, n_points_prepared)
     LOGGER.info(
         "Preprocessing metrics: RMS %.6g -> %.6g (x%.3f), MAD %.6g -> %.6g (x%.3f), Trend %.6g -> %.6g (x%.3f), Retained=%.3f",
@@ -1450,7 +1505,8 @@ def fetch_and_plot(
     LOGGER.info("Raw cache file: %s", raw_cache_path)
     LOGGER.info("Prepared cache file: %s", prepared_cache_path)
     LOGGER.info(
-        "Prep params: outlier_sigma=%.2f flatten_window_length=%d no_flatten=%s",
+        "Prep params: enabled=%s outlier_sigma=%.2f flatten_window_length=%d no_flatten=%s",
+        preprocess_enabled,
         outlier_sigma,
         flatten_window_length,
         no_flatten,

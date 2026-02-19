@@ -1,7 +1,8 @@
 {
   "metadata": {
     "target": "TIC FIXED 1",
-    "preprocess_mode": "global",
+    "preprocess_mode": "stitched",
+    "preprocess_enabled": true,
     "data_source": "raw-cache",
     "bls_enabled": true,
     "parameter_estimation_enabled": true,

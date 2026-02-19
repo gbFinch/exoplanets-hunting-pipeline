@@ -115,12 +115,13 @@ Important note: "When implementing the step explain the theory behind the milest
 - Theory note: explain why mode-based plotting reduces cognitive load while preserving review utility.
 - Implemented in `src/exohunt/cli.py`, `src/exohunt/pipeline.py`, `src/exohunt/plotting.py`, and `tests/test_smoke.py`.
 
-19. [Planned] [Refactor] Normalize mode vocabulary + preprocessing toggle
+19. [Done] [Refactor] Normalize mode vocabulary + preprocessing toggle
 - Normalize preprocess mode naming to `stitched | per-sector` (map legacy `global -> stitched`).
 - Add `preprocess.enabled` toggle in resolved config.
 - Define behavior when preprocessing is disabled.
 - Exit criteria: mode names are consistent across preprocess/plot/bls and validated centrally.
 - Theory note: document consistency principle and reduced ambiguity in CLI semantics.
+- Implemented in `src/exohunt/cli.py`, `src/exohunt/pipeline.py`, `README.md`, and test fixtures in `tests/`.
 
 20. [Planned] [Refactor] Remove fixed operational knobs from user config
 - Remove configurable `cache_dir` (fixed internal path).

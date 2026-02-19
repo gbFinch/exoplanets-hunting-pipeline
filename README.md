@@ -15,7 +15,7 @@ By default, preprocessing runs in `per-sector` mode:
 - each prepared segment is cached with a preprocessing-parameter hash
 - segments are stitched only after per-segment preprocessing
 
-Global stitched-cache mode is still available with `--preprocess-mode global`.
+Stitched-cache mode is available with `--preprocess-mode stitched` (`global` is accepted as a legacy alias).
 Use `--refresh-cache` to ignore cache and download fresh data:
 
 ```bash
@@ -26,6 +26,12 @@ Preprocessing is now applied before plotting (normalize, outlier filtering, flat
 
 ```bash
 python -m exohunt.cli --target "TIC 261136679" --outlier-sigma 5 --flatten-window-length 401
+```
+
+Disable preprocessing (pass raw flux through as prepared flux):
+
+```bash
+python -m exohunt.cli --target "TIC 261136679" --no-preprocess
 ```
 
 Author filtering in per-sector mode:

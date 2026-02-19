@@ -72,9 +72,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--preprocess-mode",
-        choices=["global", "per-sector"],
+        choices=["stitched", "per-sector", "global"],
         default="per-sector",
-        help="Preprocessing strategy. Per-sector is recommended for TESS.",
+        help="Preprocessing strategy (`global` is accepted as a legacy alias for `stitched`).",
+    )
+    parser.add_argument(
+        "--no-preprocess",
+        action="store_true",
+        help="Disable preprocessing; raw downloaded flux is passed through as prepared flux.",
     )
     parser.add_argument(
         "--authors",
@@ -179,6 +184,7 @@ def main() -> int:
             outlier_sigma=args.outlier_sigma,
             flatten_window_length=args.flatten_window_length,
             max_download_files=args.max_download_files,
+            preprocess_enabled=not args.no_preprocess,
             no_flatten=args.no_flatten,
             preprocess_mode=args.preprocess_mode,
             authors=args.authors,
@@ -206,6 +212,7 @@ def main() -> int:
             outlier_sigma=args.outlier_sigma,
             flatten_window_length=args.flatten_window_length,
             max_download_files=args.max_download_files,
+            preprocess_enabled=not args.no_preprocess,
             no_flatten=args.no_flatten,
             preprocess_mode=args.preprocess_mode,
             authors=args.authors,

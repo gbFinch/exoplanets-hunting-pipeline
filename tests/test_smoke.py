@@ -353,6 +353,33 @@ def test_fetch_and_plot_reuses_metrics_cache(monkeypatch, tmp_path):
     assert second_output.exists()
 
 
+def test_fetch_and_plot_no_preprocess_skips_prepare_lightcurve(monkeypatch, tmp_path):
+    target = "TIC 261136679"
+    cache_dir = tmp_path / "cache"
+    cache_file = _cache_path(target, cache_dir)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(cache_file, time=np.asarray([1.0, 2.0, 3.0]), flux=np.asarray([1.0, 1.0, 1.0]))
+
+    def _unexpected_search(*args, **kwargs):
+        raise AssertionError("search_lightcurve should not be called on cache hit")
+
+    def _should_not_preprocess(*args, **kwargs):
+        raise AssertionError("prepare_lightcurve should not run when preprocessing is disabled")
+
+    monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
+    monkeypatch.setattr(pipeline, "prepare_lightcurve", _should_not_preprocess)
+    monkeypatch.chdir(tmp_path)
+
+    output_path = fetch_and_plot(
+        target,
+        cache_dir=cache_dir,
+        preprocess_mode="stitched",
+        preprocess_enabled=False,
+    )
+    assert output_path is not None
+    assert output_path.exists()
+
+
 def test_fetch_and_plot_manifest_comparison_key_stable_for_same_settings(monkeypatch, tmp_path):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
@@ -498,6 +525,7 @@ def test_preprocessing_summary_csv_column_order_stable(monkeypatch, tmp_path):
     pipeline._write_preprocessing_metrics(
         target="TIC 1",
         preprocess_mode="global",
+        preprocess_enabled=True,
         outlier_sigma=5.0,
         flatten_window_length=401,
         no_flatten=False,
@@ -507,6 +535,7 @@ def test_preprocessing_summary_csv_column_order_stable(monkeypatch, tmp_path):
     pipeline._write_preprocessing_metrics(
         target="TIC 1",
         preprocess_mode="global",
+        preprocess_enabled=True,
         outlier_sigma=5.0,
         flatten_window_length=401,
         no_flatten=False,
