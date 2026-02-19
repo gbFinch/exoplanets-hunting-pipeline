@@ -124,20 +124,8 @@ def _smooth_series(values: np.ndarray, window: int = 9) -> np.ndarray:
     return np.convolve(padded, kernel, mode="valid")
 
 
-def _apply_time_window(
-    time: np.ndarray,
-    flux: np.ndarray,
-    plot_time_start: float | None,
-    plot_time_end: float | None,
-) -> tuple[np.ndarray, np.ndarray]:
-    if plot_time_start is None and plot_time_end is None:
-        return time, flux
-    mask = np.ones(len(time), dtype=bool)
-    if plot_time_start is not None:
-        mask &= time >= plot_time_start
-    if plot_time_end is not None:
-        mask &= time <= plot_time_end
-    return time[mask], flux[mask]
+def _safe_plot_key(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in value)
 
 
 def save_raw_vs_prepared_plot(
@@ -145,19 +133,18 @@ def save_raw_vs_prepared_plot(
     lc_raw: lk.LightCurve,
     lc_prepared: lk.LightCurve,
     boundaries: list[float],
-    plot_time_start: float | None = None,
-    plot_time_end: float | None = None,
+    output_key: str = "stitched",
 ) -> Path:
     output_dir = _target_artifact_dir(target, "plots")
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{_safe_target_name(target)}_prepared.png"
+    output_path = (
+        output_dir / f"{_safe_target_name(target)}_prepared_{_safe_plot_key(output_key)}.png"
+    )
 
     raw_time = np.asarray(lc_raw.time.value, dtype=float)
     raw_flux = np.asarray(lc_raw.flux.value, dtype=float)
     prep_time = np.asarray(lc_prepared.time.value, dtype=float)
     prep_flux = np.asarray(lc_prepared.flux.value, dtype=float)
-    raw_time, raw_flux = _apply_time_window(raw_time, raw_flux, plot_time_start, plot_time_end)
-    prep_time, prep_flux = _apply_time_window(prep_time, prep_flux, plot_time_start, plot_time_end)
     prep_flux_ppm = _relative_flux_to_ppm(prep_flux)
 
     fig, (ax_raw_old, ax_prepared_old, ax_prepared_new) = plt.subplots(
@@ -190,10 +177,6 @@ def save_raw_vs_prepared_plot(
     ax_prepared_new.set_ylim(*_robust_ylim(prep_flux_ppm))
 
     for boundary in boundaries:
-        if plot_time_start is not None and boundary < plot_time_start:
-            continue
-        if plot_time_end is not None and boundary > plot_time_end:
-            continue
         ax_raw_old.axvline(boundary, color="gray", alpha=0.2, linewidth=0.8)
         ax_prepared_old.axvline(boundary, color="gray", alpha=0.2, linewidth=0.8)
         ax_prepared_new.axvline(boundary, color="gray", alpha=0.2, linewidth=0.8)
@@ -237,8 +220,7 @@ def save_raw_vs_prepared_plot_interactive(
     lc_prepared: lk.LightCurve,
     boundaries: list[float],
     max_points: int = 200_000,
-    plot_time_start: float | None = None,
-    plot_time_end: float | None = None,
+    output_key: str = "stitched",
 ) -> Path:
     try:
         import plotly.graph_objects as go
@@ -250,14 +232,14 @@ def save_raw_vs_prepared_plot_interactive(
 
     output_dir = _target_artifact_dir(target, "plots")
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{_safe_target_name(target)}_prepared.html"
+    output_path = (
+        output_dir / f"{_safe_target_name(target)}_prepared_{_safe_plot_key(output_key)}.html"
+    )
 
     raw_time = np.asarray(lc_raw.time.value, dtype=float)
     raw_flux = np.asarray(lc_raw.flux.value, dtype=float)
     prep_time = np.asarray(lc_prepared.time.value, dtype=float)
     prep_flux = np.asarray(lc_prepared.flux.value, dtype=float)
-    raw_time, raw_flux = _apply_time_window(raw_time, raw_flux, plot_time_start, plot_time_end)
-    prep_time, prep_flux = _apply_time_window(prep_time, prep_flux, plot_time_start, plot_time_end)
 
     raw_time_ds, raw_flux_ds = _downsample_minmax(raw_time, raw_flux, max_points=max_points)
     prep_time_ds, prep_flux_ds = _downsample_minmax(prep_time, prep_flux, max_points=max_points)
@@ -338,10 +320,6 @@ def save_raw_vs_prepared_plot_interactive(
         )
 
     for boundary in boundaries:
-        if plot_time_start is not None and boundary < plot_time_start:
-            continue
-        if plot_time_end is not None and boundary > plot_time_end:
-            continue
         fig.add_vline(x=boundary, line_width=1, line_color="gray", opacity=0.25)
 
     fig.update_layout(

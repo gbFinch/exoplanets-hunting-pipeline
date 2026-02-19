@@ -149,10 +149,10 @@ def test_fetch_and_plot_with_fixed_fixture_emits_reproducible_candidate_payload(
         cache_dir=cache_dir,
         preprocess_mode="global",
         run_bls=True,
-        plot_time_start=None,
-        plot_time_end=None,
+        plot_mode="stitched",
     )
-    assert output is None
+    assert output is not None
+    assert output.exists()
 
     candidate_jsons = sorted((tmp_path / "outputs/tic_fixed_1/candidates").glob("*.json"))
     assert len(candidate_jsons) == 1

@@ -107,12 +107,13 @@ Important note: "When implementing the step explain the theory behind the milest
 - Theory note: explain completeness vs user-control tradeoff and why full-ingest is safer as default.
 - Implemented in `src/exohunt/cli.py`, `src/exohunt/pipeline.py`, and `src/exohunt/ingest.py`.
 
-18. [Planned] [Refactor] Simplify plotting controls to mode-based behavior
+18. [Done] [Refactor] Simplify plotting controls to mode-based behavior
 - Remove `--plot-time-start`, `--plot-time-end`, `--plot-sectors` from new UX.
 - Introduce `plot.mode = stitched | per-sector`.
 - Ensure stitched mode writes one file and per-sector mode writes one file per sector.
 - Exit criteria: plotting behavior is selected by mode only, with deterministic output naming.
 - Theory note: explain why mode-based plotting reduces cognitive load while preserving review utility.
+- Implemented in `src/exohunt/cli.py`, `src/exohunt/pipeline.py`, `src/exohunt/plotting.py`, and `tests/test_smoke.py`.
 
 19. [Planned] [Refactor] Normalize mode vocabulary + preprocessing toggle
 - Normalize preprocess mode naming to `stitched | per-sector` (map legacy `global -> stitched`).

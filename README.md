@@ -41,19 +41,18 @@ pip install -e .[plotting]
 python -m exohunt.cli --target "TIC 261136679" --interactive-html --interactive-max-points 200000
 ```
 
-Plots are generated only when at least one time bound is provided. For example (BTJD):
+Plot outputs are selected by mode:
+- `--plot-mode stitched`: one stitched plot per run
+- `--plot-mode per-sector`: one plot per prepared sector
 
 ```bash
-python -m exohunt.cli --target "TIC 261136679" --plot-time-start 1300 --plot-time-end 1350
+python -m exohunt.cli --target "TIC 261136679" --plot-mode stitched
+python -m exohunt.cli --target "TIC 261136679" --preprocess-mode per-sector --plot-mode per-sector
 ```
 
-You can also generate a plot by sector selection (per-sector mode):
-
-```bash
-python -m exohunt.cli --target "TIC 261136679" --preprocess-mode per-sector --plot-sectors 14,15
-```
-
-The output plot is saved as `outputs/<target>/plots/<target>_prepared.png`.
+Outputs are saved under `outputs/<target>/plots/` with deterministic names:
+- `<target>_prepared_stitched.png`
+- `<target>_prepared_<segment-id>.png` (per-sector mode)
 
 BLS transit-search core runs by default on prepared light curves (top candidates are logged):
 

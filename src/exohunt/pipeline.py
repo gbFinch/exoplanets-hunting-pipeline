@@ -143,15 +143,6 @@ _BATCH_STATUS_COLUMNS = [
 ]
 
 
-def _parse_sector_list(value: str | None) -> set[int] | None:
-    if not value:
-        return None
-    items = [chunk.strip() for chunk in value.split(",") if chunk.strip()]
-    if not items:
-        return None
-    return {int(item) for item in items}
-
-
 @dataclass(frozen=True)
 class BatchTargetStatus:
     run_utc: str
@@ -603,9 +594,7 @@ def run_batch_analysis(
     authors: str | None = None,
     interactive_html: bool = False,
     interactive_max_points: int = 200_000,
-    plot_time_start: float | None = None,
-    plot_time_end: float | None = None,
-    plot_sectors: str | None = None,
+    plot_mode: str = "stitched",
     run_bls: bool = True,
     bls_period_min_days: float = 0.5,
     bls_period_max_days: float = 20.0,
@@ -673,9 +662,7 @@ def run_batch_analysis(
                 authors=authors,
                 interactive_html=interactive_html,
                 interactive_max_points=interactive_max_points,
-                plot_time_start=plot_time_start,
-                plot_time_end=plot_time_end,
-                plot_sectors=plot_sectors,
+                plot_mode=plot_mode,
                 run_bls=run_bls,
                 bls_period_min_days=bls_period_min_days,
                 bls_period_max_days=bls_period_max_days,
@@ -740,9 +727,7 @@ def fetch_and_plot(
     authors: str | None = None,
     interactive_html: bool = False,
     interactive_max_points: int = 200_000,
-    plot_time_start: float | None = None,
-    plot_time_end: float | None = None,
-    plot_sectors: str | None = None,
+    plot_mode: str = "stitched",
     run_bls: bool = True,
     bls_period_min_days: float = 0.5,
     bls_period_max_days: float = 20.0,
@@ -764,7 +749,6 @@ def fetch_and_plot(
     run_started_dt = datetime.now(tz=timezone.utc)
     run_started_utc = run_started_dt.isoformat()
     selected_authors = _parse_authors(authors)
-    selected_plot_sectors = _parse_sector_list(plot_sectors)
     boundaries: list[float] = []
     data_source = "download"
     prepared_segments_for_bls: list[LightCurveSegment] = []
@@ -1306,66 +1290,78 @@ def fetch_and_plot(
     else:
         LOGGER.info("Step 6/7: diagnostics generated per sector during BLS step")
 
-    should_generate_plot = (
-        plot_time_start is not None
-        or plot_time_end is not None
-        or selected_plot_sectors is not None
-    )
-    output_path = None
-    interactive_path = None
-    if should_generate_plot:
-        plot_lc_raw = lc
-        plot_lc_prepared = lc_prepared
-        plot_boundaries = boundaries
-        if selected_plot_sectors is not None:
-            if preprocess_mode != "per-sector":
-                raise RuntimeError(
-                    "--plot-sectors requires --preprocess-mode per-sector (segment metadata needed)."
-                )
-            selected_raw_segments = [
-                segment
-                for segment in raw_segments_for_plot
-                if int(segment.sector) in selected_plot_sectors
-            ]
-            selected_prepared_segments = [
-                segment
-                for segment in prepared_segments_for_plot
-                if int(segment.sector) in selected_plot_sectors
-            ]
-            if not selected_raw_segments or not selected_prepared_segments:
-                raise RuntimeError(
-                    f"No cached segments match --plot-sectors={plot_sectors} for target {target}."
-                )
-            plot_lc_raw, plot_boundaries = _stitch_segments(
-                [seg.lc for seg in selected_raw_segments]
+    # Theory (milestone 18): mode-based plotting removes several loosely coupled
+    # axis/sector flags and makes output intent explicit and reproducible.
+    output_paths: list[Path] = []
+    interactive_paths: list[Path] = []
+    LOGGER.info("Step 7/7: generating plot(s)")
+    step_started = perf_counter()
+    if plot_mode == "stitched":
+        output_paths.append(
+            save_raw_vs_prepared_plot(
+                target=target,
+                lc_raw=lc,
+                lc_prepared=lc_prepared,
+                boundaries=boundaries,
+                output_key="stitched",
             )
-            plot_lc_prepared, _ = _stitch_segments([seg.lc for seg in selected_prepared_segments])
-
-        LOGGER.info("Step 7/7: generating plot")
-        step_started = perf_counter()
-        output_path = save_raw_vs_prepared_plot(
-            target=target,
-            lc_raw=plot_lc_raw,
-            lc_prepared=plot_lc_prepared,
-            boundaries=plot_boundaries,
-            plot_time_start=plot_time_start,
-            plot_time_end=plot_time_end,
         )
         if interactive_html:
-            interactive_path = save_raw_vs_prepared_plot_interactive(
-                target=target,
-                lc_raw=plot_lc_raw,
-                lc_prepared=plot_lc_prepared,
-                boundaries=plot_boundaries,
-                max_points=interactive_max_points,
-                plot_time_start=plot_time_start,
-                plot_time_end=plot_time_end,
+            interactive_paths.append(
+                save_raw_vs_prepared_plot_interactive(
+                    target=target,
+                    lc_raw=lc,
+                    lc_prepared=lc_prepared,
+                    boundaries=boundaries,
+                    max_points=interactive_max_points,
+                    output_key="stitched",
+                )
             )
-        LOGGER.info("Plot complete in %.2fs", perf_counter() - step_started)
-    else:
-        LOGGER.info(
-            "Step 7/7: skipping plot generation (set --plot-time-start/--plot-time-end or --plot-sectors to enable)"
+    elif plot_mode == "per-sector":
+        if (
+            preprocess_mode != "per-sector"
+            or not raw_segments_for_plot
+            or not prepared_segments_for_plot
+        ):
+            raise RuntimeError(
+                "Plot mode 'per-sector' requires preprocess mode 'per-sector' with segment data."
+            )
+        prepared_by_id = {segment.segment_id: segment for segment in prepared_segments_for_plot}
+        ordered_raw = sorted(
+            raw_segments_for_plot, key=lambda item: (int(item.sector), item.segment_id)
         )
+        for raw_segment in ordered_raw:
+            prepared_segment = prepared_by_id.get(raw_segment.segment_id)
+            if prepared_segment is None:
+                continue
+            output_paths.append(
+                save_raw_vs_prepared_plot(
+                    target=target,
+                    lc_raw=raw_segment.lc,
+                    lc_prepared=prepared_segment.lc,
+                    boundaries=[],
+                    output_key=raw_segment.segment_id,
+                )
+            )
+            if interactive_html:
+                interactive_paths.append(
+                    save_raw_vs_prepared_plot_interactive(
+                        target=target,
+                        lc_raw=raw_segment.lc,
+                        lc_prepared=prepared_segment.lc,
+                        boundaries=[],
+                        max_points=interactive_max_points,
+                        output_key=raw_segment.segment_id,
+                    )
+                )
+    else:
+        raise RuntimeError(f"Unsupported plot mode: {plot_mode}")
+    LOGGER.info(
+        "Plot complete in %.2fs (%d file%s)",
+        perf_counter() - step_started,
+        len(output_paths),
+        "" if len(output_paths) == 1 else "s",
+    )
 
     run_finished_utc = datetime.now(tz=timezone.utc).isoformat()
     runtime_seconds = perf_counter() - started_at
@@ -1381,9 +1377,7 @@ def fetch_and_plot(
         "authors": authors if authors else "all",
         "interactive_html": bool(interactive_html),
         "interactive_max_points": int(interactive_max_points),
-        "plot_time_start": float(plot_time_start) if plot_time_start is not None else float("nan"),
-        "plot_time_end": float(plot_time_end) if plot_time_end is not None else float("nan"),
-        "plot_sectors": plot_sectors if plot_sectors else "all",
+        "plot_mode": plot_mode,
         "run_bls": bool(run_bls),
         "bls_mode": bls_mode,
         "bls_period_min_days": float(bls_period_min_days),
@@ -1408,8 +1402,10 @@ def fetch_and_plot(
         "metrics_csv_path": str(metrics_csv_path),
         "metrics_json_path": str(metrics_json_path),
         "metrics_cache_path": str(metrics_cache_path),
-        "plot_path": str(output_path) if output_path is not None else "",
-        "interactive_plot_path": str(interactive_path) if interactive_path is not None else "",
+        "plot_path_count": int(len(output_paths)),
+        "plot_paths": [str(path) for path in output_paths],
+        "interactive_plot_path_count": int(len(interactive_paths)),
+        "interactive_plot_paths": [str(path) for path in interactive_paths],
         "candidate_output_key": candidate_output_key if candidate_output_key is not None else "",
         "candidate_csv_count": int(len(candidate_csv_paths)),
         "candidate_json_count": int(len(candidate_json_paths)),
@@ -1463,12 +1459,7 @@ def fetch_and_plot(
         "Max download files: %s", max_download_files if max_download_files is not None else "all"
     )
     LOGGER.info("Author filter: %s", authors if authors else "all")
-    LOGGER.info(
-        "Plot time start (BTJD): %s",
-        plot_time_start if plot_time_start is not None else "auto",
-    )
-    LOGGER.info("Plot time end (BTJD): %s", plot_time_end if plot_time_end is not None else "auto")
-    LOGGER.info("Plot sectors: %s", plot_sectors if plot_sectors else "all")
+    LOGGER.info("Plot mode: %s", plot_mode)
     LOGGER.info("Interactive HTML: %s", interactive_html)
     LOGGER.info("Interactive max points: %d", interactive_max_points)
     LOGGER.info(
@@ -1506,12 +1497,12 @@ def fetch_and_plot(
                 vetting.vetting_reasons,
             )
     LOGGER.info("Total runtime: %.2fs", runtime_seconds)
-    if output_path is not None:
-        LOGGER.info("Saved plot: %s", output_path)
-    else:
-        LOGGER.info("Saved plot: skipped")
-    if interactive_path is not None:
-        LOGGER.info("Saved interactive plot: %s", interactive_path)
+    LOGGER.info("Saved plot files: %d", len(output_paths))
+    for path in output_paths:
+        LOGGER.info("  - %s", path)
+    LOGGER.info("Saved interactive plot files: %d", len(interactive_paths))
+    for path in interactive_paths:
+        LOGGER.info("  - %s", path)
     LOGGER.info("Saved preprocessing metrics CSV: %s", metrics_csv_path)
     LOGGER.info("Saved preprocessing metrics JSON: %s", metrics_json_path)
     LOGGER.info("Metrics cache file: %s", metrics_cache_path)
@@ -1530,4 +1521,4 @@ def fetch_and_plot(
         LOGGER.info("  - Saved phase-folded plot: %s", phasefold_path)
     LOGGER.info("--------------------------------")
 
-    return output_path
+    return output_paths[0] if output_paths else None

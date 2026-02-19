@@ -93,21 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum points per trace in interactive HTML via min/max downsampling.",
     )
     parser.add_argument(
-        "--plot-time-start",
-        type=float,
-        default=None,
-        help="Optional plot x-axis start in BTJD.",
-    )
-    parser.add_argument(
-        "--plot-time-end",
-        type=float,
-        default=None,
-        help="Optional plot x-axis end in BTJD.",
-    )
-    parser.add_argument(
-        "--plot-sectors",
-        default=None,
-        help="Optional comma-separated sectors to include in plot, e.g. '14,15' (per-sector mode).",
+        "--plot-mode",
+        choices=["stitched", "per-sector"],
+        default="stitched",
+        help="Plotting mode: one stitched plot or one plot per prepared sector.",
     )
     parser.add_argument(
         "--no-bls",
@@ -195,9 +184,7 @@ def main() -> int:
             authors=args.authors,
             interactive_html=args.interactive_html,
             interactive_max_points=args.interactive_max_points,
-            plot_time_start=args.plot_time_start,
-            plot_time_end=args.plot_time_end,
-            plot_sectors=args.plot_sectors,
+            plot_mode=args.plot_mode,
             run_bls=not args.no_bls,
             bls_period_min_days=args.bls_period_min_days,
             bls_period_max_days=args.bls_period_max_days,
@@ -224,9 +211,7 @@ def main() -> int:
             authors=args.authors,
             interactive_html=args.interactive_html,
             interactive_max_points=args.interactive_max_points,
-            plot_time_start=args.plot_time_start,
-            plot_time_end=args.plot_time_end,
-            plot_sectors=args.plot_sectors,
+            plot_mode=args.plot_mode,
             run_bls=not args.no_bls,
             bls_period_min_days=args.bls_period_min_days,
             bls_period_max_days=args.bls_period_max_days,
