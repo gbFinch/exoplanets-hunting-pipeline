@@ -1,0 +1,46 @@
+{
+  "source_run_file": "outputs/tic_261136679/candidates/tic_261136679__bls_cf473890ae95.json",
+  "note": "Real run example for TIC 261136679. In this case, the accepted/real planet signal appears at rank 2 rather than rank 1.",
+  "candidates": [
+    {
+      "rank": 1,
+      "period_days": 1.5669543338043215,
+      "duration_hours": 3.0,
+      "depth_ppm": 43.98520228435891,
+      "power": 3.0508253077316492e-05,
+      "pass_odd_even_depth": false,
+      "pass_alias_harmonic": true,
+      "vetting_pass": false,
+      "vetting_reasons": "odd_even_depth_mismatch"
+    },
+    {
+      "rank": 2,
+      "period_days": 6.267835516128348,
+      "duration_hours": 2.5,
+      "depth_ppm": 179.90382892442165,
+      "power": 0.00011120747200548977,
+      "pass_odd_even_depth": true,
+      "pass_alias_harmonic": true,
+      "vetting_pass": true,
+      "vetting_reasons": "pass"
+    },
+    {
+      "rank": 4,
+      "period_days": 12.535657632601104,
+      "duration_hours": 2.5,
+      "depth_ppm": 182.76336589188693,
+      "power": 5.828727160666987e-05,
+      "alias_harmonic_with_rank": 2,
+      "pass_alias_harmonic": false,
+      "vetting_pass": false,
+      "vetting_reasons": "alias_or_harmonic_of_rank_2"
+    }
+  ],
+  "metadata": {
+    "target": "TIC 261136679",
+    "run_utc": "2026-02-21T21:27:03.565643+00:00",
+    "preprocess_mode": "per-sector",
+    "bls_mode": "stitched",
+    "bls_top_n": 5
+  }
+}

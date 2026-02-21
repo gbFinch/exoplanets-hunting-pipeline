@@ -10,18 +10,18 @@ authors = ["SPOC"]
 [preprocess]
 enabled = true
 mode = "per-sector"
-outlier_sigma = 6.0
-flatten_window_length = 201
+outlier_sigma = 4.0
+flatten_window_length = 801
 flatten = true
 
 [plot]
 enabled = true
-mode = "stitched"
+mode = "per-sector"
 interactive_html = false
 interactive_max_points = 120000
 
 [bls]
-enabled = true
+enabled = false
 mode = "stitched"
 period_min_days = 0.8
 period_max_days = 12.0

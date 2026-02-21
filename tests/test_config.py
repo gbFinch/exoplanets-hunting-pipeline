@@ -140,7 +140,7 @@ def test_resolve_runtime_config_reads_preset_from_file(tmp_path: Path):
     config_path.write_text('schema_version = 1\npreset = "quicklook"\n', encoding="utf-8")
     cfg = resolve_runtime_config(config_path=config_path)
     assert cfg.preset == "quicklook"
-    assert cfg.preprocess.outlier_sigma == pytest.approx(6.0)
+    assert cfg.preprocess.outlier_sigma == pytest.approx(4.0)
 
 
 def test_write_preset_config(tmp_path: Path):
