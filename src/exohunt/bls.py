@@ -430,7 +430,16 @@ def run_iterative_bls_search(
         candidates = candidates[: config.iterative_top_n]
 
         new_this_iter: list[BLSCandidate] = []
+        # Vet candidates before masking so that spurious signals
+        # (e.g. odd/even failures, aliases) don't consume mask budget
+        # and destroy data for subsequent iterations.
+        from exohunt.vetting import vet_bls_candidates
+
+        iter_vetting = vet_bls_candidates(iter_lc, candidates)
         for cand in candidates:
+            vetting_result = iter_vetting.get(cand.rank)
+            if vetting_result is not None and not vetting_result.vetting_pass:
+                continue
             if not _cross_iteration_unique(cand, accepted_for_masking):
                 continue
             tagged = BLSCandidate(

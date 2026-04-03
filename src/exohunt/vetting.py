@@ -34,6 +34,7 @@ def _group_depth_ppm(
     transit_time: float,
     duration_days: float,
     parity: int,
+    min_unique_transits: int = 5,
 ) -> tuple[float, int]:
     if period_days <= 0 or duration_days <= 0 or len(time) == 0:
         return float("nan"), 0
@@ -44,8 +45,10 @@ def _group_depth_ppm(
     out_transit = selected & (np.abs(dt) >= duration_days)
     if int(np.count_nonzero(in_transit)) < 5 or int(np.count_nonzero(out_transit)) < 10:
         return float("nan"), 0
-    depth = float(np.nanmedian(flux[out_transit]) - np.nanmedian(flux[in_transit]))
     observed_cycles = int(np.unique(cycle[in_transit]).size)
+    if observed_cycles < min_unique_transits:
+        return float("nan"), observed_cycles
+    depth = float(np.nanmedian(flux[out_transit]) - np.nanmedian(flux[in_transit]))
     return depth * 1_000_000.0, observed_cycles
 
 
@@ -174,16 +177,30 @@ def vet_bls_candidates(
         pass_min_count = observed_count >= int(min_transit_count)
 
         mismatch_fraction = float("nan")
-        # Fix: Change 8 — Handle NaN as inconclusive, not fail (V1)
         pass_odd_even = False
         odd_even_status = "fail"
-        if np.isfinite(odd_depth_ppm) and np.isfinite(even_depth_ppm):
+        # Estimate actual observed transits using data duty cycle.
+        # With gapped TESS data (typical duty cycle 10-30%), the raw
+        # cycle count is inflated because every cycle with any data
+        # gets counted even when no transit was observed.
+        _span = float(np.nanmax(time) - np.nanmin(time))
+        if _span > 0 and len(time) > 1:
+            _cadence_days = float(np.nanmedian(np.diff(time)))
+            _duty_cycle = min(len(time) * _cadence_days / _span, 1.0)
+        else:
+            _duty_cycle = 0.0
+        _est_real_transits_per_parity = (
+            _duty_cycle * candidate.transit_count_estimate / 2.0
+        )
+        _min_parity_transits = 5
+        _enough_odd_even = _est_real_transits_per_parity >= _min_parity_transits
+        if (np.isfinite(odd_depth_ppm) and np.isfinite(even_depth_ppm)
+                and _enough_odd_even):
             denom = max(abs(odd_depth_ppm), abs(even_depth_ppm), 1e-9)
             mismatch_fraction = abs(odd_depth_ppm - even_depth_ppm) / denom
             pass_odd_even = mismatch_fraction <= float(odd_even_mismatch_max_fraction)
             odd_even_status = "pass" if pass_odd_even else "fail"
         else:
-            # Insufficient data — do not penalize
             pass_odd_even = True
             odd_even_status = "inconclusive"
 

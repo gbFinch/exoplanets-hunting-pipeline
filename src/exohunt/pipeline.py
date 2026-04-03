@@ -1356,6 +1356,11 @@ def _search_and_output_stage(
                 )
                 if refined_candidates:
                     bls_candidates = refined_candidates
+                # Assign globally unique ranks before vetting so candidates
+                # from different iterations don't collide in the rank-keyed
+                # vetting dict.
+                for _i, _c in enumerate(bls_candidates):
+                    object.__setattr__(_c, "rank", _i + 1)
                 stitched_vetting_by_rank = vet_bls_candidates(
                     lc_prepared=lc_prepared,
                     candidates=bls_candidates,
