@@ -1,0 +1,152 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "modern-pipeline",
+    "created": "2026-04-05T20:16:35+02:00",
+    "updated": "2026-04-05T20:24:00+02:00",
+    "status": "completed"
+  },
+  "classification": {
+    "primary_type": "research",
+    "secondary_types": [],
+    "rationale": "The context.md explicitly declares Type: research. The goal is to investigate and prioritize improvements to an existing exoplanet transit detection pipeline, producing a research document — not code changes."
+  },
+  "codebase_snapshot": {
+    "scanned_at": "2026-04-05T20:16:35+02:00",
+    "has_existing_code": true,
+    "detected_stack": {
+      "language": "Python",
+      "runtime": "Python 3.10+",
+      "framework": "lightkurve + astropy + transitleastsquares",
+      "build_tool": "setuptools",
+      "test_framework": "pytest",
+      "package_manager": "pip"
+    },
+    "folder_structure": "src/exohunt/\n  pipeline.py\n  tls.py\n  bls.py\n  vetting.py\n  preprocess.py\n  config.py\n  crossmatch.py\n  collect.py\n  plotting.py\n  parameters.py\n  ingest.py\n  models.py\n  cache.py\n  cli.py\n  comparison.py\n  progress.py\n  presets/\n    science-default.toml\n    deep-search.toml\n    quicklook.toml\ntests/\n  test_smoke.py\n  test_config.py\n  test_cli.py\n  test_iterative_bls.py\n  test_p0_fixes.py\n  test_p1_fixes.py\n  test_p2_fixes.py\n  test_refactoring.py\n  test_analysis_modules.py\nscripts/\nconfigs/\nexamples/\n.docs/",
+    "source_files": [
+      "src/exohunt/pipeline.py",
+      "src/exohunt/tls.py",
+      "src/exohunt/bls.py",
+      "src/exohunt/vetting.py",
+      "src/exohunt/preprocess.py",
+      "src/exohunt/config.py",
+      "src/exohunt/crossmatch.py",
+      "src/exohunt/collect.py",
+      "src/exohunt/plotting.py",
+      "src/exohunt/parameters.py",
+      "src/exohunt/ingest.py",
+      "src/exohunt/models.py",
+      "src/exohunt/cache.py",
+      "src/exohunt/cli.py",
+      "src/exohunt/comparison.py",
+      "src/exohunt/progress.py"
+    ],
+    "test_files": [
+      "tests/test_smoke.py",
+      "tests/test_config.py",
+      "tests/test_cli.py",
+      "tests/test_iterative_bls.py",
+      "tests/test_p0_fixes.py",
+      "tests/test_p1_fixes.py",
+      "tests/test_p2_fixes.py",
+      "tests/test_refactoring.py",
+      "tests/test_analysis_modules.py"
+    ],
+    "config_files": [
+      "pyproject.toml",
+      ".pre-commit-config.yaml",
+      ".github/workflows/ci.yml"
+    ],
+    "summary": "Python 3.10+ exoplanet transit detection pipeline using lightkurve, astropy, and transitleastsquares. Has 16 source files across ingest, preprocessing, BLS/TLS search, vetting, crossmatching, and batch orchestration modules. 9 test files (138 tests) using pytest. Existing capabilities: TESS SPOC ingestion, SavGol flattening, TLS/BLS search, iterative masking, candidate vetting, NASA archive crossmatching, and batch processing with resume."
+  },
+  "chain": [
+    {
+      "sequence": 1,
+      "agent_id": "research",
+      "agent_version": "1.0.0",
+      "artifact": null,
+      "artifact_type": "document",
+      "status": "completed",
+      "human_gate": false,
+      "artifact": "01-research.md",
+      "attempts": [
+        {
+          "attempt": 1,
+          "started": "2026-04-05T20:17:00+02:00",
+          "ended": "2026-04-05T20:22:00+02:00",
+          "verdict": {
+            "verdict": "pass",
+            "scores": {
+              "relevance": 9,
+              "depth": 9,
+              "objectivity": 9,
+              "structure": 8,
+              "actionability": 9
+            },
+            "average_score": 8.8,
+            "issues": [
+              {
+                "severity": "minor",
+                "description": "Comparison matrix is wide and may be hard to read in markdown.",
+                "location": "Section 4: Comparison Matrix"
+              },
+              {
+                "severity": "minor",
+                "description": "Some runtime estimates use ranges without specifying conditions.",
+                "location": "Section 3.5 and Comparison Matrix"
+              },
+              {
+                "severity": "suggestion",
+                "description": "Methodology section could cite specific documentation URLs.",
+                "location": "Section 2: Methodology"
+              }
+            ],
+            "summary": "Comprehensive research covering all 12 improvement areas with actionable recommendations. Well-structured findings with maturity and compatibility assessments. Minor readability issues."
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 2,
+      "agent_id": "summary",
+      "agent_version": "1.0.0",
+      "artifact": null,
+      "artifact_type": "document",
+      "status": "completed",
+      "human_gate": false,
+      "artifact": "02-summary.md",
+      "attempts": [
+        {
+          "attempt": 1,
+          "started": "2026-04-05T20:22:30+02:00",
+          "ended": "2026-04-05T20:24:00+02:00",
+          "verdict": {
+            "verdict": "pass",
+            "scores": {
+              "completeness": 9,
+              "accuracy": 9,
+              "conciseness": 9,
+              "actionability": 9,
+              "standalone_clarity": 8
+            },
+            "average_score": 8.8,
+            "issues": [
+              {
+                "severity": "minor",
+                "description": "Chain Overview shows dash for summary agent's own critic verdict.",
+                "location": "Section 2: Chain Overview"
+              },
+              {
+                "severity": "suggestion",
+                "description": "Next Steps table could include effort estimates.",
+                "location": "Section 7: Next Steps"
+              }
+            ],
+            "summary": "Clear executive summary accurately representing research findings. All artifacts referenced, decisions documented, risks consolidated."
+          }
+        }
+      ]
+    }
+  ],
+  "errors": []
+}
