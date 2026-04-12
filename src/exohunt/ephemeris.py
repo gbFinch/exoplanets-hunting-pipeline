@@ -22,6 +22,11 @@ class KnownPlanetEphemeris:
     period_days: float
     t0_bjd: float
     duration_hours: float
+    # Batman model params (only for confirmed planets with published values)
+    rp_rs: float | None = None       # Rp/Rs
+    a_rs: float | None = None        # a/Rs
+    impact_param: float | None = None # impact parameter
+    confirmed: bool = False
 
 
 def query_known_ephemerides(tic_id: int, timeout: float = 15.0) -> list[KnownPlanetEphemeris]:
@@ -31,7 +36,7 @@ def query_known_ephemerides(tic_id: int, timeout: float = 15.0) -> list[KnownPla
     needed to build a pre-masking transit mask.
     """
     query = (
-        f"select pl_name,pl_orbper,pl_tranmid,pl_trandur "
+        f"select pl_name,pl_orbper,pl_tranmid,pl_trandur,pl_ratror,pl_ratdor,pl_imppar "
         f"from ps where tic_id='TIC {tic_id}' and default_flag=1"
     )
     url = f"{_NASA_TAP}?query={urllib.parse.quote(query)}&format=json"
@@ -50,11 +55,18 @@ def query_known_ephemerides(tic_id: int, timeout: float = 15.0) -> list[KnownPla
         name = row.get("pl_name", "unknown")
         if period is None or t0 is None:
             continue
-        # Duration may be missing; use a default of 3 hours
         dur_h = float(dur) if dur is not None else 3.0
+        # Batman params — may be None
+        rp_rs = row.get("pl_ratror")
+        a_rs = row.get("pl_ratdor")
+        imp = row.get("pl_imppar")
         results.append(KnownPlanetEphemeris(
             name=name, period_days=float(period),
             t0_bjd=float(t0), duration_hours=dur_h,
+            rp_rs=float(rp_rs) if rp_rs is not None else None,
+            a_rs=float(a_rs) if a_rs is not None else None,
+            impact_param=float(imp) if imp is not None else None,
+            confirmed=True,
         ))
 
     if results:
