@@ -1441,6 +1441,43 @@ def _search_and_output_stage(
                     secondary_eclipse_max_fraction=vetting_secondary_eclipse_max_fraction,
                     depth_consistency_max_fraction=vetting_depth_consistency_max_fraction,
                 )
+                # Centroid vetting for candidates that passed rule-based checks
+                if bls_search_method == "tls":
+                    passing = [
+                        c for c in bls_candidates
+                        if stitched_vetting_by_rank.get(c.rank)
+                        and stitched_vetting_by_rank[c.rank].vetting_pass
+                    ]
+                    if passing:
+                        from exohunt.centroid import run_centroid_vetting
+                        tic_num = int(target.replace("TIC ", "").strip())
+                        centroid_input = [
+                            {"rank": c.rank, "period_days": c.period_days,
+                             "transit_time": c.transit_time, "duration_hours": c.duration_hours}
+                            for c in passing
+                        ]
+                        centroid_results = run_centroid_vetting(tic_num, centroid_input)
+                        for rank, cr in centroid_results.items():
+                            vr = stitched_vetting_by_rank.get(rank)
+                            if vr and not cr.passed and cr.status == "fail":
+                                # Override vetting_pass and append reason
+                                stitched_vetting_by_rank[rank] = CandidateVettingResult(
+                                    pass_min_transit_count=vr.pass_min_transit_count,
+                                    pass_odd_even_depth=vr.pass_odd_even_depth,
+                                    pass_alias_harmonic=vr.pass_alias_harmonic,
+                                    pass_secondary_eclipse=vr.pass_secondary_eclipse,
+                                    pass_depth_consistency=vr.pass_depth_consistency,
+                                    vetting_pass=False,
+                                    transit_count_observed=vr.transit_count_observed,
+                                    odd_depth_ppm=vr.odd_depth_ppm,
+                                    even_depth_ppm=vr.even_depth_ppm,
+                                    odd_even_depth_mismatch_fraction=vr.odd_even_depth_mismatch_fraction,
+                                    secondary_eclipse_depth_fraction=vr.secondary_eclipse_depth_fraction,
+                                    depth_consistency_fraction=vr.depth_consistency_fraction,
+                                    alias_harmonic_with_rank=vr.alias_harmonic_with_rank,
+                                    vetting_reasons=vr.vetting_reasons + ";centroid_shift",
+                                    odd_even_status=vr.odd_even_status,
+                                )
             LOGGER.info(
                 "BLS complete in %.2fs (%d candidate%s)",
                 perf_counter() - step_started,
