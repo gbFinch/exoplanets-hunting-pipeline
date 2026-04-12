@@ -419,5 +419,5 @@ class TestNFR:
         with pyproject.open("rb") as f:
             data = tomllib.load(f)
         deps = set(data["project"]["dependencies"])
-        expected = {"numpy", "matplotlib", "astropy", "lightkurve", "pandas", "transitleastsquares"}
+        expected = {"numpy", "matplotlib", "astropy", "lightkurve", "pandas", "transitleastsquares", "triceratops"}
         assert deps == expected, f"Unexpected dependencies: {deps - expected}"

@@ -13,6 +13,7 @@ dependencies = [
   "lightkurve",
   "pandas",
   "transitleastsquares",
+  "triceratops",
 ]
 
 [project.optional-dependencies]

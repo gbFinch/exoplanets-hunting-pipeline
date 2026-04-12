@@ -1624,6 +1624,47 @@ def _search_and_output_stage(
     # Theory (milestone 18): mode-based plotting removes several loosely coupled
     # axis/sector flags and makes output intent explicit and reproducible.
 
+    # TRICERATOPS statistical validation for passing candidates (opt-in, expensive)
+    if (bls_search_method == "tls" and bls_candidates and stitched_vetting_by_rank
+            and bls_mode != "per-sector"):
+        passing = [
+            c for c in bls_candidates
+            if stitched_vetting_by_rank.get(c.rank)
+            and stitched_vetting_by_rank[c.rank].vetting_pass
+        ]
+        if passing:
+            from exohunt.validation import validate_candidate
+            tic_num = int(target.replace("TIC ", "").strip())
+            time_arr = np.asarray(lc_prepared.time.value, dtype=float)
+            flux_arr = np.asarray(lc_prepared.flux.value, dtype=float)
+            flux_err = float(np.nanstd(flux_arr[np.isfinite(flux_arr)])) if np.any(np.isfinite(flux_arr)) else 0.001
+            # Determine sectors from light curve metadata
+            sectors = [14]  # fallback
+            try:
+                import lightkurve as _lk
+                sr = _lk.search_lightcurve(f"TIC {tic_num}", mission="TESS", author="SPOC")
+                if len(sr) > 0:
+                    sectors = sorted({int(s.split()[-1]) for s in sr.mission})
+            except Exception:
+                pass
+            validation_results = {}
+            for c in passing:
+                LOGGER.info("TRICERATOPS validation for rank %d P=%.3fd...", c.rank, c.period_days)
+                vr = validate_candidate(
+                    tic_id=tic_num, sectors=sectors,
+                    time=time_arr, flux=flux_arr, flux_err=flux_err,
+                    period_days=c.period_days, depth_ppm=c.depth_ppm,
+                    N=10000,  # Use moderate N for pipeline runs; increase for publication
+                )
+                validation_results[c.rank] = {
+                    "fpp": vr.fpp, "nfpp": vr.nfpp,
+                    "validated": vr.validated, "status": vr.status,
+                }
+            if validation_results:
+                val_path = _target_artifact_dir(target, "candidates") / f"{_safe_target_name(target)}__validation.json"
+                val_path.write_text(json.dumps(validation_results, indent=2), encoding="utf-8")
+                LOGGER.info("TRICERATOPS results written to %s", val_path)
+
     return SearchResult(
         bls_candidates=bls_candidates,
         candidate_output_key=candidate_output_key,
