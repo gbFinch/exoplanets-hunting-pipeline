@@ -108,41 +108,38 @@ def _inconclusive(reason: str) -> CentroidResult:
 def run_centroid_vetting(
     tic_id: int,
     candidates: list[dict],
+    tpf=None,
     timeout_seconds: float = 120.0,
 ) -> dict[int, CentroidResult]:
     """Run centroid vetting for a list of candidates.
 
     Downloads TPFs and checks centroid shift for each candidate.
     candidates: list of dicts with keys: rank, period_days, transit_time, duration_hours
+    tpf: optional pre-downloaded TargetPixelFile (skips download if provided)
 
     Returns dict mapping candidate rank to CentroidResult.
     """
-    import lightkurve as lk
-
     results: dict[int, CentroidResult] = {}
     if not candidates:
         return results
 
-    # Download TPFs once (use first available sector)
-    try:
-        sr = lk.search_targetpixelfile(f"TIC {tic_id}", mission="TESS", author="SPOC")
-        if len(sr) == 0:
-            LOGGER.warning("No TPFs found for TIC %d", tic_id)
-            return {c["rank"]: _inconclusive("no_tpf") for c in candidates}
-        # Download all and stitch for maximum coverage
-        tpf_collection = sr.download_all()
-        # Use the collection as individual TPFs — check each candidate against
-        # the TPF with the most overlap
-    except Exception as exc:
-        LOGGER.warning("TPF download failed for TIC %d: %s", tic_id, exc)
-        return {c["rank"]: _inconclusive("tpf_download_failed") for c in candidates}
+    if tpf is None:
+        import lightkurve as lk
+        try:
+            sr = lk.search_targetpixelfile(f"TIC {tic_id}", mission="TESS", author="SPOC")
+            if len(sr) == 0:
+                LOGGER.warning("No TPFs found for TIC %d", tic_id)
+                return {c["rank"]: _inconclusive("no_tpf") for c in candidates}
+            # Download only the longest sector to avoid timeouts
+            tpf = sr[0].download()
+        except Exception as exc:
+            LOGGER.warning("TPF download failed for TIC %d: %s", tic_id, exc)
+            return {c["rank"]: _inconclusive("tpf_download_failed") for c in candidates}
 
     for cand in candidates:
         rank = cand["rank"]
-        # Find the TPF with the most data points
-        best_tpf = max(tpf_collection, key=lambda t: len(t.time))
         results[rank] = check_centroid_shift(
-            tpf=best_tpf,
+            tpf=tpf,
             period_days=cand["period_days"],
             transit_time=cand["transit_time"],
             duration_hours=cand["duration_hours"],

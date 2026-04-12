@@ -808,6 +808,7 @@ class IngestResult:
     prepared_segments_for_bls: list[LightCurveSegment]
     raw_segments_for_plot: list[LightCurveSegment]
     prepared_segments_for_plot: list[LightCurveSegment]
+    tpf: object | None = None  # TargetPixelFile for centroid vetting
 
 
 @dataclass(frozen=True)
@@ -1096,6 +1097,17 @@ def _ingest_stage(
         prepared_cache_path = _segment_base_dir(target, cache_dir)
 
 
+    # Download one TPF for centroid vetting (best done during ingest
+    # to avoid a second round of MAST queries during vetting)
+    tpf = None
+    try:
+        sr_tpf = lk.search_targetpixelfile(target, mission="TESS", author="SPOC")
+        if len(sr_tpf) > 0:
+            tpf = sr_tpf[0].download()
+            LOGGER.info("Downloaded TPF for centroid vetting (%d cadences)", len(tpf.time))
+    except Exception as exc:
+        LOGGER.warning("TPF download failed during ingest: %s", exc)
+
     return IngestResult(
         lc=lc, lc_prepared=lc_prepared, boundaries=boundaries,
         data_source=data_source, raw_cache_path=raw_cache_path,
@@ -1103,6 +1115,7 @@ def _ingest_stage(
         prepared_segments_for_bls=prepared_segments_for_bls,
         raw_segments_for_plot=raw_segments_for_plot,
         prepared_segments_for_plot=prepared_segments_for_plot,
+        tpf=tpf,
     )
 
 
@@ -1153,6 +1166,7 @@ def _search_and_output_stage(
     bls_subtraction_model: str = "box_mask",
     preprocess_iterative_flatten: bool = False,
     preprocess_transit_mask_padding_factor: float = 1.5,
+    tpf: object | None = None,
 ) -> SearchResult:
     """Run BLS search, vetting, parameter estimation, and write candidates."""
     bls_candidates = []
@@ -1165,6 +1179,7 @@ def _search_and_output_stage(
 
     # Query stellar parameters for TLS
     stellar_params = None
+    known = []
     if bls_search_method == "tls":
         from exohunt.stellar import query_stellar_params
         tic_num = int(target.replace("TIC ", "").strip())
@@ -1172,9 +1187,9 @@ def _search_and_output_stage(
 
     # Pre-mask known planet transits so the first search pass finds new signals
     if bls_search_method == "tls":
-        from exohunt.ephemeris import query_known_ephemerides
+        from exohunt.ephemeris import query_all_ephemerides
         tic_num = int(target.replace("TIC ", "").strip())
-        known = query_known_ephemerides(tic_num)
+        known = query_all_ephemerides(tic_num)
         if known:
             time_arr = np.asarray(lc_prepared.time.value, dtype=float)
             flux_arr = np.asarray(lc_prepared.flux.value, dtype=float)
@@ -1456,7 +1471,7 @@ def _search_and_output_stage(
                              "transit_time": c.transit_time, "duration_hours": c.duration_hours}
                             for c in passing
                         ]
-                        centroid_results = run_centroid_vetting(tic_num, centroid_input)
+                        centroid_results = run_centroid_vetting(tic_num, centroid_input, tpf=tpf)
                         for rank, cr in centroid_results.items():
                             vr = stitched_vetting_by_rank.get(rank)
                             if vr and not cr.passed and cr.status == "fail":
@@ -1478,6 +1493,42 @@ def _search_and_output_stage(
                                     vetting_reasons=vr.vetting_reasons + ";centroid_shift",
                                     odd_even_status=vr.odd_even_status,
                                 )
+                # Sub-harmonic check against known TOI/confirmed planet periods
+                if known:
+                    _HARMONIC_RATIOS = (2, 3, 4, 5, 6, 7, 8, 9, 10)
+                    known_periods = [e.period_days for e in known]
+                    for c in bls_candidates:
+                        vr = stitched_vetting_by_rank.get(c.rank)
+                        if not vr or not vr.vetting_pass:
+                            continue
+                        for kp in known_periods:
+                            for n in _HARMONIC_RATIOS:
+                                if abs(c.period_days - kp / n) / c.period_days < 0.03:
+                                    LOGGER.info(
+                                        "Candidate P=%.3fd is 1/%d sub-harmonic of known P=%.3fd",
+                                        c.period_days, n, kp,
+                                    )
+                                    stitched_vetting_by_rank[c.rank] = CandidateVettingResult(
+                                        pass_min_transit_count=vr.pass_min_transit_count,
+                                        pass_odd_even_depth=vr.pass_odd_even_depth,
+                                        pass_alias_harmonic=False,
+                                        pass_secondary_eclipse=vr.pass_secondary_eclipse,
+                                        pass_depth_consistency=vr.pass_depth_consistency,
+                                        vetting_pass=False,
+                                        transit_count_observed=vr.transit_count_observed,
+                                        odd_depth_ppm=vr.odd_depth_ppm,
+                                        even_depth_ppm=vr.even_depth_ppm,
+                                        odd_even_depth_mismatch_fraction=vr.odd_even_depth_mismatch_fraction,
+                                        secondary_eclipse_depth_fraction=vr.secondary_eclipse_depth_fraction,
+                                        depth_consistency_fraction=vr.depth_consistency_fraction,
+                                        alias_harmonic_with_rank=vr.alias_harmonic_with_rank,
+                                        vetting_reasons=vr.vetting_reasons.replace("pass", "") + f"toi_subharmonic_1/{n}_of_{kp:.1f}d",
+                                        odd_even_status=vr.odd_even_status,
+                                    )
+                                    break
+                            else:
+                                continue
+                            break
             LOGGER.info(
                 "BLS complete in %.2fs (%d candidate%s)",
                 perf_counter() - step_started,
@@ -1654,7 +1705,7 @@ def _search_and_output_stage(
                     tic_id=tic_num, sectors=sectors,
                     time=time_arr, flux=flux_arr, flux_err=flux_err,
                     period_days=c.period_days, depth_ppm=c.depth_ppm,
-                    N=10000,  # Use moderate N for pipeline runs; increase for publication
+                    N=1_000_000,
                 )
                 validation_results[c.rank] = {
                     "fpp": vr.fpp, "nfpp": vr.nfpp,
@@ -2159,6 +2210,7 @@ def fetch_and_plot(
         bls_subtraction_model=bls_subtraction_model,
         preprocess_iterative_flatten=preprocess_iterative_flatten,
         preprocess_transit_mask_padding_factor=preprocess_transit_mask_padding_factor,
+        tpf=ingest.tpf,
     )
 
     # Stage 4: Plotting
