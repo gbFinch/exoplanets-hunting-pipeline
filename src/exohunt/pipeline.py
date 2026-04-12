@@ -1170,6 +1170,36 @@ def _search_and_output_stage(
         tic_num = int(target.replace("TIC ", "").strip())
         stellar_params = query_stellar_params(tic_num)
 
+    # Pre-mask known planet transits so the first search pass finds new signals
+    if bls_search_method == "tls":
+        from exohunt.ephemeris import query_known_ephemerides
+        tic_num = int(target.replace("TIC ", "").strip())
+        known = query_known_ephemerides(tic_num)
+        if known:
+            time_arr = np.asarray(lc_prepared.time.value, dtype=float)
+            flux_arr = np.asarray(lc_prepared.flux.value, dtype=float)
+            n_masked = 0
+            for eph in known:
+                t0_btjd = eph.t0_bjd - 2457000.0
+                half_w = 0.5 * (eph.duration_hours / 24.0) * 1.5  # 1.5x padding
+                period = eph.period_days
+                if period <= 0:
+                    continue
+                t_min, t_max = float(np.nanmin(time_arr)), float(np.nanmax(time_arr))
+                n_start = int(np.floor((t_min - t0_btjd) / period)) - 1
+                n_end = int(np.ceil((t_max - t0_btjd) / period)) + 1
+                for n in range(n_start, n_end + 1):
+                    epoch = t0_btjd + n * period
+                    hit = np.abs(time_arr - epoch) < half_w
+                    n_masked += int(np.sum(hit & np.isfinite(flux_arr)))
+                    flux_arr[hit] = np.nan
+            lc_prepared = lk.LightCurve(time=lc_prepared.time, flux=flux_arr)
+            LOGGER.info(
+                "Pre-masked %d cadences for %d known planet(s): %s",
+                n_masked, len(known),
+                ", ".join(f"{e.name} P={e.period_days:.2f}d" for e in known),
+            )
+
     if run_bls:
         LOGGER.info("Step 5/7: running BLS transit search")
         step_started = perf_counter()
