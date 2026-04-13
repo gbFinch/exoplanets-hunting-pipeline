@@ -85,6 +85,8 @@ class VettingConfig:
     alias_tolerance_fraction: float
     secondary_eclipse_max_fraction: float
     depth_consistency_max_fraction: float
+    triceratops_enabled: bool = False
+    triceratops_n: int = 100_000
 
 
 @dataclass(frozen=True)
@@ -549,6 +551,8 @@ def resolve_runtime_config(
         depth_consistency_max_fraction=_expect_float(
             vetting_data, "depth_consistency_max_fraction", scope="vetting"
         ),
+        triceratops_enabled=_expect_bool(vetting_data, "triceratops_enabled", scope="vetting") if "triceratops_enabled" in vetting_data else False,
+        triceratops_n=_expect_int(vetting_data, "triceratops_n", scope="vetting") if "triceratops_n" in vetting_data else 100_000,
     )
 
     parameters_data = merged["parameters"]

@@ -116,6 +116,8 @@ def _run_single_target(*, target: str, config_ref: str | None) -> None:
         config_preset_id=preset_meta[0],
         config_preset_version=preset_meta[1],
         config_preset_hash=preset_meta[2],
+        triceratops_enabled=runtime_config.vetting.triceratops_enabled,
+        triceratops_n=runtime_config.vetting.triceratops_n,
     )
 
 
@@ -166,6 +168,8 @@ def _run_batch_targets(
         no_cache=no_cache,
         state_path=state_path,
         status_path=status_path,
+        triceratops_enabled=runtime_config.vetting.triceratops_enabled,
+        triceratops_n=runtime_config.vetting.triceratops_n,
     )
 
 

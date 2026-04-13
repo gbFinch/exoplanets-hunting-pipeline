@@ -658,6 +658,8 @@ def run_batch_analysis(
     no_cache: bool = False,
     state_path: Path | None = None,
     status_path: Path | None = None,
+    triceratops_enabled: bool = False,
+    triceratops_n: int = 100_000,
 ) -> tuple[Path, Path, Path]:
     """Run analysis for many targets with failure isolation and resumable state.
 
@@ -736,6 +738,8 @@ def run_batch_analysis(
                         config_preset_version=config_preset_version,
                         config_preset_hash=config_preset_hash,
                         no_cache=no_cache,
+                        triceratops_enabled=triceratops_enabled,
+                        triceratops_n=triceratops_n,
                     )
                     break  # success
                 except (OSError, ConnectionError, TimeoutError) as net_exc:
@@ -1167,6 +1171,8 @@ def _search_and_output_stage(
     preprocess_iterative_flatten: bool = False,
     preprocess_transit_mask_padding_factor: float = 1.5,
     tpf: object | None = None,
+    triceratops_enabled: bool = False,
+    triceratops_n: int = 100_000,
 ) -> SearchResult:
     """Run BLS search, vetting, parameter estimation, and write candidates."""
     bls_candidates = []
@@ -1708,8 +1714,8 @@ def _search_and_output_stage(
     # axis/sector flags and makes output intent explicit and reproducible.
 
     # TRICERATOPS statistical validation for passing candidates (opt-in, expensive)
-    if (bls_search_method == "tls" and bls_candidates and stitched_vetting_by_rank
-            and bls_mode != "per-sector"):
+    if (triceratops_enabled and bls_search_method == "tls" and bls_candidates
+            and stitched_vetting_by_rank and bls_mode != "per-sector"):
         passing = [
             c for c in bls_candidates
             if stitched_vetting_by_rank.get(c.rank)
@@ -1738,7 +1744,7 @@ def _search_and_output_stage(
                     time=time_arr, flux=flux_arr, flux_err=flux_err,
                     period_days=c.period_days, t0=c.transit_time,
                     duration_hours=c.duration_hours, depth_ppm=c.depth_ppm,
-                    N=1_000_000,
+                    N=triceratops_n,
                 )
                 validation_results[c.rank] = {
                     "fpp": vr.fpp, "nfpp": vr.nfpp,
@@ -1749,6 +1755,10 @@ def _search_and_output_stage(
                 val_path.write_text(json.dumps(validation_results, indent=2), encoding="utf-8")
                 LOGGER.info("TRICERATOPS results written to %s", val_path)
 
+    # Append passing candidates to live summary CSVs
+    if bls_candidates and stitched_vetting_by_rank:
+        _append_live_candidates(target, bls_candidates, stitched_vetting_by_rank, known)
+
     return SearchResult(
         bls_candidates=bls_candidates,
         candidate_output_key=candidate_output_key,
@@ -1757,6 +1767,53 @@ def _search_and_output_stage(
         diagnostic_assets=diagnostic_assets,
         stitched_vetting_by_rank=stitched_vetting_by_rank,
     )
+
+
+_LIVE_CSV = Path("outputs/batch/candidates_live.csv")
+_NOVEL_CSV = Path("outputs/batch/candidates_novel.csv")
+_LIVE_COLS = "target,rank,period_days,depth_ppm,snr,duration_hours,transit_time,iteration,vetting_reasons,vetting_pass"
+
+
+def _append_live_candidates(
+    target: str, candidates: list, vetting: dict, known_ephemerides: list,
+) -> None:
+    """Append candidates to live summary CSV; novel-only to a second CSV."""
+    for csv_path in (_LIVE_CSV, _NOVEL_CSV):
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        if not csv_path.exists():
+            csv_path.write_text(_LIVE_COLS + "\n", encoding="utf-8")
+
+    known_periods = [e.period_days for e in known_ephemerides] if known_ephemerides else []
+
+    for c in candidates:
+        vr = vetting.get(c.rank)
+        if not vr:
+            continue
+        row = (
+            f"{target},{c.rank},{c.period_days:.6f},{c.depth_ppm:.1f},"
+            f"{c.snr:.2f},{c.duration_hours:.3f},{c.transit_time:.6f},"
+            f"{getattr(c, 'iteration', 0)},{vr.vetting_reasons},{vr.vetting_pass}\n"
+        )
+        with open(_LIVE_CSV, "a", encoding="utf-8") as f:
+            f.write(row)
+        if not vr.vetting_pass:
+            continue
+        is_known = False
+        for kp in known_periods:
+            ratio = c.period_days / kp if kp > 0 else 0
+            for mult in (1, 2, 3, 0.5, 1 / 3):
+                if abs(ratio - mult) < 0.03:
+                    is_known = True
+                    break
+            if is_known:
+                break
+        if not is_known:
+            with open(_NOVEL_CSV, "a", encoding="utf-8") as f:
+                f.write(row)
+            LOGGER.info(
+                "📡 NOVEL candidate: %s rank=%d P=%.4fd depth=%.0fppm SDE=%.1f",
+                target, c.rank, c.period_days, c.depth_ppm, c.snr,
+            )
 
 
 def _plotting_stage(
@@ -2135,6 +2192,8 @@ def fetch_and_plot(
     config_preset_version: int | None = None,
     config_preset_hash: str | None = None,
     no_cache: bool = False,
+    triceratops_enabled: bool = False,
+    triceratops_n: int = 100_000,
 ) -> Path | None:
     """Fetch, preprocess, analyze, and optionally plot a target light curve.
 
@@ -2244,6 +2303,8 @@ def fetch_and_plot(
         preprocess_iterative_flatten=preprocess_iterative_flatten,
         preprocess_transit_mask_padding_factor=preprocess_transit_mask_padding_factor,
         tpf=ingest.tpf,
+        triceratops_enabled=triceratops_enabled,
+        triceratops_n=triceratops_n,
     )
 
     # Stage 4: Plotting
