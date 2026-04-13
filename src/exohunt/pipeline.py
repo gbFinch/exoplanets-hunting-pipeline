@@ -1736,7 +1736,8 @@ def _search_and_output_stage(
                 vr = validate_candidate(
                     tic_id=tic_num, sectors=sectors,
                     time=time_arr, flux=flux_arr, flux_err=flux_err,
-                    period_days=c.period_days, depth_ppm=c.depth_ppm,
+                    period_days=c.period_days, t0=c.transit_time,
+                    duration_hours=c.duration_hours, depth_ppm=c.depth_ppm,
                     N=1_000_000,
                 )
                 validation_results[c.rank] = {
