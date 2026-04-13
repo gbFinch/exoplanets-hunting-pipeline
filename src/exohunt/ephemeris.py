@@ -29,7 +29,22 @@ class KnownPlanetEphemeris:
     confirmed: bool = False
 
 
-def query_known_ephemerides(tic_id: int, timeout: float = 15.0) -> list[KnownPlanetEphemeris]:
+def _tap_query(query: str, timeout: float, retries: int = 3) -> list[dict]:
+    """Execute a TAP query with retries."""
+    url = f"{_NASA_TAP}?query={urllib.parse.quote(query)}&format=json"
+    for attempt in range(retries):
+        try:
+            resp = urllib.request.urlopen(url, timeout=timeout)
+            return json.loads(resp.read())
+        except Exception:
+            if attempt == retries - 1:
+                raise
+            import time
+            time.sleep(2 ** attempt)
+    return []
+
+
+def query_known_ephemerides(tic_id: int, timeout: float = 30.0) -> list[KnownPlanetEphemeris]:
     """Query NASA Exoplanet Archive for confirmed planets around a TIC.
 
     Returns ephemerides with period, transit midpoint (BJD), and duration
@@ -39,10 +54,8 @@ def query_known_ephemerides(tic_id: int, timeout: float = 15.0) -> list[KnownPla
         f"select pl_name,pl_orbper,pl_tranmid,pl_trandur,pl_ratror,pl_ratdor,pl_imppar "
         f"from ps where tic_id='TIC {tic_id}' and default_flag=1"
     )
-    url = f"{_NASA_TAP}?query={urllib.parse.quote(query)}&format=json"
     try:
-        resp = urllib.request.urlopen(url, timeout=timeout)
-        rows = json.loads(resp.read())
+        rows = _tap_query(query, timeout)
     except Exception as exc:
         LOGGER.warning("Ephemeris query failed for TIC %d: %s", tic_id, exc)
         return []
@@ -80,7 +93,7 @@ def query_known_ephemerides(tic_id: int, timeout: float = 15.0) -> list[KnownPla
     return results
 
 
-def query_toi_ephemerides(tic_id: int, timeout: float = 15.0) -> list[KnownPlanetEphemeris]:
+def query_toi_ephemerides(tic_id: int, timeout: float = 30.0) -> list[KnownPlanetEphemeris]:
     """Query NASA Exoplanet Archive TOI table for planet candidates.
 
     Returns ephemerides for TOI candidates (not yet confirmed) so they
@@ -90,10 +103,8 @@ def query_toi_ephemerides(tic_id: int, timeout: float = 15.0) -> list[KnownPlane
         f"select toi,pl_orbper,pl_tranmid,pl_trandurh "
         f"from toi where tid={tic_id}"
     )
-    url = f"{_NASA_TAP}?query={urllib.parse.quote(query)}&format=json"
     try:
-        resp = urllib.request.urlopen(url, timeout=timeout)
-        rows = json.loads(resp.read())
+        rows = _tap_query(query, timeout)
     except Exception as exc:
         LOGGER.warning("TOI query failed for TIC %d: %s", tic_id, exc)
         return []
