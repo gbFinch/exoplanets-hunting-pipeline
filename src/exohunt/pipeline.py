@@ -1392,6 +1392,7 @@ def _search_and_output_stage(
                             candidates=segment_candidates,
                             period_grid_days=period_grid_days,
                             power_grid=period_power,
+                            stellar_params=stellar_params,
                         )
                     )
 
@@ -1696,6 +1697,7 @@ def _search_and_output_stage(
                 candidates=bls_candidates,
                 period_grid_days=period_grid_days,
                 power_grid=period_power,
+                stellar_params=stellar_params,
             )
             LOGGER.info(
                 "Candidate diagnostics complete in %.2fs (%d candidate asset set%s)",
