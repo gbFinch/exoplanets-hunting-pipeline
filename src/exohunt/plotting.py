@@ -9,6 +9,7 @@ import numpy as np
 
 from exohunt.bls import BLSCandidate
 from exohunt.cache import _safe_target_name, _target_artifact_dir
+from exohunt.stellar import SOLAR_LIMB_DARKENING
 
 
 def _relative_flux_to_ppm(relative_flux: np.ndarray) -> np.ndarray:
@@ -389,7 +390,7 @@ def _batman_transit_model_ppm(
     period_days: float,
     duration_hours: float,
     depth_ppm: float,
-    limb_darkening: tuple[float, float] = (0.4804, 0.1867),
+    limb_darkening: tuple[float, float] = SOLAR_LIMB_DARKENING,
 ) -> np.ndarray | None:
     """Return a Mandel-Agol transit model evaluated at the given phase.
 
@@ -573,7 +574,7 @@ def save_candidate_diagnostics(
 
         # Mandel-Agol transit model (for Panel 1 overlay + Panel 2 residuals)
         model_x = np.linspace(-zoom_half_width, zoom_half_width, 400)
-        ld_u = (0.4804, 0.1867)
+        ld_u = SOLAR_LIMB_DARKENING
         if stellar_params is not None and not getattr(stellar_params, "used_defaults", True):
             ld_u = tuple(stellar_params.limb_darkening)
         model_y = _batman_transit_model_ppm(

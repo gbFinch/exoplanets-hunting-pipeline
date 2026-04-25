@@ -43,3 +43,25 @@ def _extract_segments(
             )
         )
     return segments
+
+
+def _stitch_segments(lightcurves: list[lk.LightCurve]) -> tuple[lk.LightCurve, list[float]]:
+    if not lightcurves:
+        raise RuntimeError("No light-curve segments available to stitch.")
+    ordered = sorted(lightcurves, key=lambda item: float(np.nanmin(item.time.value)))
+    time_parts = []
+    flux_parts = []
+    boundaries: list[float] = []
+    for idx, lc in enumerate(ordered):
+        time_values = np.asarray(lc.time.value, dtype=float)
+        flux_values = np.asarray(lc.flux.value, dtype=float)
+        if time_values.size == 0:
+            continue
+        if idx > 0:
+            boundaries.append(float(time_values[0]))
+        time_parts.append(time_values)
+        flux_parts.append(flux_values)
+    if not time_parts:
+        raise RuntimeError("All stitched segments were empty after preprocessing.")
+    stitched = lk.LightCurve(time=np.concatenate(time_parts), flux=np.concatenate(flux_parts))
+    return stitched, boundaries

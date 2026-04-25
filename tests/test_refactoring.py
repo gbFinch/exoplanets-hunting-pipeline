@@ -11,6 +11,8 @@ import pytest
 
 from exohunt.bls import BLSCandidate, compute_bls_periodogram, run_bls_search
 
+from conftest import _test_config
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -159,7 +161,7 @@ class TestFetchAndPlotBehavior:
         monkeypatch.setattr(pipeline.lk, "search_lightcurve", _no_search)
         monkeypatch.chdir(tmp_path)
 
-        result = fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="stitched")
+        result = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
         assert result is None or isinstance(result, type(tmp_path))
 
     def test_produces_metrics_files(self, monkeypatch, tmp_path):
@@ -179,7 +181,7 @@ class TestFetchAndPlotBehavior:
                             lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no search")))
         monkeypatch.chdir(tmp_path)
 
-        fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="stitched")
+        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
         assert (tmp_path / "outputs/metrics/preprocessing_summary.csv").exists()
         assert (tmp_path / "outputs/tic_888888888/metrics/preprocessing_summary.json").exists()
 
@@ -200,7 +202,7 @@ class TestFetchAndPlotBehavior:
                             lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no search")))
         monkeypatch.chdir(tmp_path)
 
-        fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="stitched")
+        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
         manifest_dir = tmp_path / "outputs/tic_777777777/manifests"
         assert manifest_dir.exists()
         assert len(list(manifest_dir.glob("*__manifest_*.json"))) == 1
@@ -227,7 +229,7 @@ class TestFetchAndPlotBehavior:
                             lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no search")))
         monkeypatch.chdir(tmp_path)
 
-        fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="stitched", run_bls=True)
+        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched", run_bls=True), cache_dir=cache_dir)
         candidates_dir = tmp_path / "outputs/tic_666666666/candidates"
         assert candidates_dir.exists()
         csv_files = list(candidates_dir.glob("*.csv"))

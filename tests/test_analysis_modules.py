@@ -10,6 +10,8 @@ from exohunt.bls import BLSCandidate, run_bls_search
 from exohunt.vetting import CandidateVettingResult
 from exohunt.preprocess import compute_preprocessing_quality_metrics
 
+from conftest import _test_config
+
 
 class _ArrayValue:
     def __init__(self, values):
@@ -150,10 +152,8 @@ def test_fetch_and_plot_with_fixed_fixture_emits_reproducible_candidate_payload(
 
     output = pipeline.fetch_and_plot(
         target=target,
+        config=_test_config(preprocess_mode="stitched", run_bls=True, plot_mode="stitched"),
         cache_dir=cache_dir,
-        preprocess_mode="global",
-        run_bls=True,
-        plot_mode="stitched",
     )
     assert output is not None
     assert output.exists()

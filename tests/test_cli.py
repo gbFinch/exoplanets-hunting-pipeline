@@ -9,9 +9,10 @@ from exohunt import cli
 def test_run_command_uses_resolved_config(monkeypatch):
     captured: dict[str, object] = {}
 
-    def _fake_fetch_and_plot(target, **kwargs):
+    def _fake_fetch_and_plot(target, config, preset_meta=None, **kwargs):
         captured["target"] = target
-        captured.update(kwargs)
+        captured["config"] = config
+        captured["preset_meta"] = preset_meta
         return None
 
     monkeypatch.setattr(cli, "fetch_and_plot", _fake_fetch_and_plot)
@@ -20,9 +21,9 @@ def test_run_command_uses_resolved_config(monkeypatch):
 
     assert rc == 0
     assert captured["target"] == "TIC 123"
-    assert captured["preprocess_mode"] == "per-sector"
-    assert captured["plot_enabled"] is True
-    assert captured["config_preset_id"] == "quicklook"
+    assert captured["config"].preprocess.mode == "per-sector"
+    assert captured["config"].plot.enabled is True
+    assert captured["preset_meta"].name == "quicklook"
 
 
 def test_batch_command_uses_targets_file(monkeypatch, tmp_path: Path):
@@ -31,7 +32,10 @@ def test_batch_command_uses_targets_file(monkeypatch, tmp_path: Path):
 
     captured: dict[str, object] = {}
 
-    def _fake_run_batch_analysis(**kwargs):
+    def _fake_run_batch_analysis(targets, config, preset_meta=None, **kwargs):
+        captured["targets"] = targets
+        captured["config"] = config
+        captured["preset_meta"] = preset_meta
         captured.update(kwargs)
         return None
 
@@ -51,7 +55,7 @@ def test_batch_command_uses_targets_file(monkeypatch, tmp_path: Path):
     assert rc == 0
     assert captured["targets"] == ["TIC 1", "TIC 2"]
     assert captured["resume"] is True
-    assert captured["config_preset_id"] == "science-default"
+    assert captured["preset_meta"].name == "science-default"
 
 
 def test_init_config_command_writes_file(tmp_path: Path):
@@ -66,9 +70,9 @@ def test_legacy_cli_emits_deprecation_and_maps_global(monkeypatch, caplog):
     caplog.set_level(logging.WARNING)
     captured: dict[str, object] = {}
 
-    def _fake_fetch_and_plot(target, **kwargs):
+    def _fake_fetch_and_plot(target, config, preset_meta=None, **kwargs):
         captured["target"] = target
-        captured.update(kwargs)
+        captured["config"] = config
         return None
 
     monkeypatch.setattr(cli, "fetch_and_plot", _fake_fetch_and_plot)
@@ -77,7 +81,7 @@ def test_legacy_cli_emits_deprecation_and_maps_global(monkeypatch, caplog):
 
     assert rc == 0
     assert "Deprecated legacy CLI usage detected" in caplog.text
-    assert captured["preprocess_mode"] == "stitched"
+    assert captured["config"].preprocess.mode == "stitched"
 
 
 def test_legacy_cli_removed_plot_filter_errors_with_actionable_message(tmp_path: Path):

@@ -9,12 +9,14 @@ import sys
 
 from exohunt.config import (
     ConfigValidationError,
+    PresetMeta,
     get_builtin_preset_metadata,
     list_builtin_presets,
     resolve_runtime_config,
     write_preset_config,
 )
-from exohunt.pipeline import fetch_and_plot, run_batch_analysis
+from exohunt.batch import run_batch_analysis
+from exohunt.pipeline import fetch_and_plot
 
 
 DEFAULT_TARGET = "TIC 261136679"
@@ -56,7 +58,7 @@ def _resolve_runtime(
     except ConfigValidationError as exc:
         raise RuntimeError(f"Invalid runtime configuration: {exc}") from exc
 
-    preset_meta = (None, None, None)
+    preset_meta = PresetMeta()
     if runtime_config.preset is not None and runtime_config.preset in set(list_builtin_presets()):
         preset_meta = get_builtin_preset_metadata(runtime_config.preset)
     return runtime_config, preset_meta
@@ -64,61 +66,7 @@ def _resolve_runtime(
 
 def _run_single_target(*, target: str, config_ref: str | None) -> None:
     runtime_config, preset_meta = _resolve_runtime(config_ref=config_ref)
-    authors = ",".join(runtime_config.ingest.authors) if runtime_config.ingest.authors else None
-    fetch_and_plot(
-        target,
-        refresh_cache=runtime_config.io.refresh_cache,
-        outlier_sigma=runtime_config.preprocess.outlier_sigma,
-        flatten_window_length=runtime_config.preprocess.flatten_window_length,
-        preprocess_enabled=runtime_config.preprocess.enabled,
-        no_flatten=not runtime_config.preprocess.flatten,
-        preprocess_mode=runtime_config.preprocess.mode,
-        authors=authors,
-        interactive_html=runtime_config.plot.interactive_html,
-        interactive_max_points=runtime_config.plot.interactive_max_points,
-        plot_enabled=runtime_config.plot.enabled,
-        plot_mode=runtime_config.plot.mode,
-        run_bls=runtime_config.bls.enabled,
-        bls_period_min_days=runtime_config.bls.period_min_days,
-        bls_period_max_days=runtime_config.bls.period_max_days,
-        bls_duration_min_hours=runtime_config.bls.duration_min_hours,
-        bls_duration_max_hours=runtime_config.bls.duration_max_hours,
-        bls_n_periods=runtime_config.bls.n_periods,
-        bls_n_durations=runtime_config.bls.n_durations,
-        bls_top_n=runtime_config.bls.top_n,
-        bls_mode=runtime_config.bls.mode,
-        bls_search_method=runtime_config.bls.search_method,
-        bls_min_snr=runtime_config.bls.min_snr,
-        bls_compute_fap=runtime_config.bls.compute_fap,
-        bls_fap_iterations=runtime_config.bls.fap_iterations,
-        bls_iterative_masking=runtime_config.bls.iterative_masking,
-        bls_iterative_passes=runtime_config.bls.iterative_passes,
-        bls_iterative_top_n=runtime_config.bls.iterative_top_n,
-        bls_transit_mask_padding_factor=runtime_config.bls.transit_mask_padding_factor,
-        bls_subtraction_model=runtime_config.bls.subtraction_model,
-        preprocess_iterative_flatten=runtime_config.preprocess.iterative_flatten,
-        preprocess_transit_mask_padding_factor=runtime_config.preprocess.transit_mask_padding_factor,
-        vetting_min_transit_count=runtime_config.vetting.min_transit_count,
-        vetting_odd_even_max_mismatch_fraction=runtime_config.vetting.odd_even_max_mismatch_fraction,
-        vetting_alias_tolerance_fraction=runtime_config.vetting.alias_tolerance_fraction,
-        vetting_secondary_eclipse_max_fraction=runtime_config.vetting.secondary_eclipse_max_fraction,
-        vetting_depth_consistency_max_fraction=runtime_config.vetting.depth_consistency_max_fraction,
-        parameter_stellar_density_kg_m3=runtime_config.parameters.stellar_density_kg_m3,
-        parameter_duration_ratio_min=runtime_config.parameters.duration_ratio_min,
-        parameter_duration_ratio_max=runtime_config.parameters.duration_ratio_max,
-        parameter_apply_limb_darkening_correction=runtime_config.parameters.apply_limb_darkening_correction,
-        parameter_limb_darkening_u1=runtime_config.parameters.limb_darkening_u1,
-        parameter_limb_darkening_u2=runtime_config.parameters.limb_darkening_u2,
-        parameter_tic_density_lookup=runtime_config.parameters.tic_density_lookup,
-        bls_unique_period_separation_fraction=runtime_config.bls.unique_period_separation_fraction,
-        plot_smoothing_window=runtime_config.plot.smoothing_window,
-        config_schema_version=runtime_config.schema_version,
-        config_preset_id=preset_meta[0],
-        config_preset_version=preset_meta[1],
-        config_preset_hash=preset_meta[2],
-        triceratops_enabled=runtime_config.vetting.triceratops_enabled,
-        triceratops_n=runtime_config.vetting.triceratops_n,
-    )
+    fetch_and_plot(target, config=runtime_config, preset_meta=preset_meta)
 
 
 def _run_batch_targets(
@@ -135,41 +83,10 @@ def _run_batch_targets(
         raise RuntimeError(f"No targets found in batch file: {targets_file}")
 
     runtime_config, preset_meta = _resolve_runtime(config_ref=config_ref)
-    authors = ",".join(runtime_config.ingest.authors) if runtime_config.ingest.authors else None
     run_batch_analysis(
-        targets=targets,
-        refresh_cache=runtime_config.io.refresh_cache,
-        outlier_sigma=runtime_config.preprocess.outlier_sigma,
-        flatten_window_length=runtime_config.preprocess.flatten_window_length,
-        preprocess_enabled=runtime_config.preprocess.enabled,
-        no_flatten=not runtime_config.preprocess.flatten,
-        preprocess_mode=runtime_config.preprocess.mode,
-        authors=authors,
-        interactive_html=runtime_config.plot.interactive_html,
-        interactive_max_points=runtime_config.plot.interactive_max_points,
-        plot_enabled=runtime_config.plot.enabled,
-        plot_mode=runtime_config.plot.mode,
-        run_bls=runtime_config.bls.enabled,
-        bls_period_min_days=runtime_config.bls.period_min_days,
-        bls_period_max_days=runtime_config.bls.period_max_days,
-        bls_duration_min_hours=runtime_config.bls.duration_min_hours,
-        bls_duration_max_hours=runtime_config.bls.duration_max_hours,
-        bls_n_periods=runtime_config.bls.n_periods,
-        bls_n_durations=runtime_config.bls.n_durations,
-        bls_top_n=runtime_config.bls.top_n,
-        bls_mode=runtime_config.bls.mode,
-        bls_search_method=runtime_config.bls.search_method,
-        bls_min_snr=runtime_config.bls.min_snr,
-        config_schema_version=runtime_config.schema_version,
-        config_preset_id=preset_meta[0],
-        config_preset_version=preset_meta[1],
-        config_preset_hash=preset_meta[2],
-        resume=resume,
-        no_cache=no_cache,
-        state_path=state_path,
-        status_path=status_path,
-        triceratops_enabled=runtime_config.vetting.triceratops_enabled,
-        triceratops_n=runtime_config.vetting.triceratops_n,
+        targets=targets, config=runtime_config, preset_meta=preset_meta,
+        resume=resume, no_cache=no_cache,
+        state_path=state_path, status_path=status_path,
     )
 
 
@@ -403,74 +320,19 @@ def _run_legacy(argv: list[str]) -> int:
     }
 
     runtime_config, preset_meta = _resolve_runtime(config_ref=None, cli_overrides=cli_overrides)
-    authors = ",".join(runtime_config.ingest.authors) if runtime_config.ingest.authors else None
 
     if args.batch_targets_file:
         targets = _load_batch_targets(Path(args.batch_targets_file))
         if not targets:
             raise RuntimeError(f"No targets found in batch file: {args.batch_targets_file}")
         run_batch_analysis(
-            targets=targets,
-            refresh_cache=runtime_config.io.refresh_cache,
-            outlier_sigma=runtime_config.preprocess.outlier_sigma,
-            flatten_window_length=runtime_config.preprocess.flatten_window_length,
-            preprocess_enabled=runtime_config.preprocess.enabled,
-            no_flatten=not runtime_config.preprocess.flatten,
-            preprocess_mode=runtime_config.preprocess.mode,
-            authors=authors,
-            interactive_html=runtime_config.plot.interactive_html,
-            interactive_max_points=runtime_config.plot.interactive_max_points,
-            plot_enabled=runtime_config.plot.enabled,
-            plot_mode=runtime_config.plot.mode,
-            run_bls=runtime_config.bls.enabled,
-            bls_period_min_days=runtime_config.bls.period_min_days,
-            bls_period_max_days=runtime_config.bls.period_max_days,
-            bls_duration_min_hours=runtime_config.bls.duration_min_hours,
-            bls_duration_max_hours=runtime_config.bls.duration_max_hours,
-            bls_n_periods=runtime_config.bls.n_periods,
-            bls_n_durations=runtime_config.bls.n_durations,
-            bls_top_n=runtime_config.bls.top_n,
-            bls_mode=runtime_config.bls.mode,
-            bls_search_method=runtime_config.bls.search_method,
-            bls_min_snr=runtime_config.bls.min_snr,
-            config_schema_version=runtime_config.schema_version,
-            config_preset_id=preset_meta[0],
-            config_preset_version=preset_meta[1],
-            config_preset_hash=preset_meta[2],
+            targets=targets, config=runtime_config, preset_meta=preset_meta,
             resume=args.batch_resume,
             state_path=Path(args.batch_state_path) if args.batch_state_path else None,
             status_path=Path(args.batch_status_path) if args.batch_status_path else None,
         )
     else:
-        fetch_and_plot(
-            args.target,
-            refresh_cache=runtime_config.io.refresh_cache,
-            outlier_sigma=runtime_config.preprocess.outlier_sigma,
-            flatten_window_length=runtime_config.preprocess.flatten_window_length,
-            preprocess_enabled=runtime_config.preprocess.enabled,
-            no_flatten=not runtime_config.preprocess.flatten,
-            preprocess_mode=runtime_config.preprocess.mode,
-            authors=authors,
-            interactive_html=runtime_config.plot.interactive_html,
-            interactive_max_points=runtime_config.plot.interactive_max_points,
-            plot_enabled=runtime_config.plot.enabled,
-            plot_mode=runtime_config.plot.mode,
-            run_bls=runtime_config.bls.enabled,
-            bls_period_min_days=runtime_config.bls.period_min_days,
-            bls_period_max_days=runtime_config.bls.period_max_days,
-            bls_duration_min_hours=runtime_config.bls.duration_min_hours,
-            bls_duration_max_hours=runtime_config.bls.duration_max_hours,
-            bls_n_periods=runtime_config.bls.n_periods,
-            bls_n_durations=runtime_config.bls.n_durations,
-            bls_top_n=runtime_config.bls.top_n,
-            bls_mode=runtime_config.bls.mode,
-            bls_search_method=runtime_config.bls.search_method,
-            bls_min_snr=runtime_config.bls.min_snr,
-            config_schema_version=runtime_config.schema_version,
-            config_preset_id=preset_meta[0],
-            config_preset_version=preset_meta[1],
-            config_preset_hash=preset_meta[2],
-        )
+        fetch_and_plot(args.target, config=runtime_config, preset_meta=preset_meta)
     return 0
 
 

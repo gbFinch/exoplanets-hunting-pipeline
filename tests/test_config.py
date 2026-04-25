@@ -153,7 +153,7 @@ def test_write_preset_config(tmp_path: Path):
 
 
 def test_get_builtin_preset_metadata_returns_stable_version_and_hash():
-    preset_id, preset_version, preset_hash = get_builtin_preset_metadata("science-default")
-    assert preset_id == "science-default"
-    assert preset_version == BUILTIN_PRESET_PACK_VERSION
-    assert len(preset_hash) == 16
+    meta = get_builtin_preset_metadata("science-default")
+    assert meta.name == "science-default"
+    assert meta.version == BUILTIN_PRESET_PACK_VERSION
+    assert len(meta.hash) == 16

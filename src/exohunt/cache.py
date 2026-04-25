@@ -3,12 +3,23 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import lightkurve as lk
 import numpy as np
 
 from exohunt.models import LightCurveSegment
+
+
+def content_hash(payload: Mapping[str, Any], *, length: int = 16) -> str:
+    """Compute a stable short SHA-1 hash of a JSON-serializable dict.
+
+    Note: SHA-1 is used for cache-key backward compatibility, not for security.
+    Changing the algorithm would invalidate all existing cache files. Do not
+    change without a cache migration strategy.
+    """
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha1(encoded).hexdigest()[:length]
 
 
 def _safe_target_name(target: str) -> str:
@@ -41,8 +52,7 @@ def _prepared_cache_key(
         "flatten_window_length": int(flatten_window_length),
         "no_flatten": bool(no_flatten),
     }
-    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
-    return hashlib.sha1(encoded).hexdigest()[:12]
+    return content_hash(payload, length=12)
 
 
 def _prepared_cache_path(

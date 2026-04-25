@@ -13,7 +13,8 @@ from dataclasses import dataclass
 
 LOGGER = logging.getLogger(__name__)
 
-_SOLAR_U = (0.4804, 0.1867)
+SOLAR_LIMB_DARKENING: tuple[float, float] = (0.4804, 0.1867)
+_SOLAR_U = SOLAR_LIMB_DARKENING
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ def _solar_defaults() -> StellarParams:
     return StellarParams(
         R_star=1.0, R_star_min=0.13, R_star_max=3.5,
         M_star=1.0, M_star_min=0.1, M_star_max=1.0,
-        limb_darkening=_SOLAR_U, used_defaults=True,
+        limb_darkening=SOLAR_LIMB_DARKENING, used_defaults=True,
     )
 
 

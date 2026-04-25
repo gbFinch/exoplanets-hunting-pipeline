@@ -4,14 +4,15 @@ from __future__ import annotations
 import json
 import logging
 import time
-import urllib.request
 from pathlib import Path
+
+from exohunt.ephemeris import _tap_query
+from exohunt.models import parse_tic_id
 
 LOGGER = logging.getLogger(__name__)
 
-_NASA_TAP = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
 _PERIOD_MATCH_FRAC = 0.03  # 3% period match threshold
-_HARMONIC_RATIOS = (0.5, 2.0, 1 / 3, 3.0, 2 / 3, 3 / 2)
+_CROSSMATCH_PERIOD_RATIOS = (0.5, 2.0, 1 / 3, 3.0, 2 / 3, 3 / 2)
 
 
 def _query_nasa_archive(tic_id: int) -> list[dict]:
@@ -20,10 +21,8 @@ def _query_nasa_archive(tic_id: int) -> list[dict]:
         f"select pl_name,pl_orbper,pl_trandep,pl_rade,tic_id "
         f"from ps where tic_id='TIC {tic_id}' and default_flag=1"
     )
-    url = f"{_NASA_TAP}?query={urllib.parse.quote(query)}&format=json"
     try:
-        resp = urllib.request.urlopen(url, timeout=15)
-        return json.loads(resp.read())
+        return _tap_query(query, timeout=15)
     except Exception as exc:
         LOGGER.warning("NASA archive query failed for TIC %s: %s", tic_id, exc)
         return []
@@ -31,7 +30,7 @@ def _query_nasa_archive(tic_id: int) -> list[dict]:
 
 def _is_harmonic(period: float, known_period: float) -> str | None:
     """Check if period is a harmonic of known_period. Returns ratio string or None."""
-    for ratio in _HARMONIC_RATIOS:
+    for ratio in _CROSSMATCH_PERIOD_RATIOS:
         expected = known_period * ratio
         if abs(period - expected) / expected < _PERIOD_MATCH_FRAC:
             return f"{ratio:.2g}x"
@@ -51,7 +50,7 @@ def crossmatch(summary_path: Path, output_path: Path | None = None) -> dict:
     total = len(systems)
 
     for i, (target, candidates) in enumerate(systems.items()):
-        tic_id = int(target.replace("TIC ", "").strip())
+        tic_id = parse_tic_id(target)
         print(f"  [{i + 1}/{total}] {target}...", end=" ", flush=True)
 
         known = _query_nasa_archive(tic_id)
@@ -138,7 +137,6 @@ def crossmatch(summary_path: Path, output_path: Path | None = None) -> dict:
 
 def main() -> None:
     import argparse
-    import urllib.parse  # noqa: F811 — needed at module scope for _query
 
     parser = argparse.ArgumentParser(description="Cross-reference candidates against known planets")
     parser.add_argument("summary", type=Path, nargs="?",
@@ -146,14 +144,8 @@ def main() -> None:
     parser.add_argument("-o", "--output", type=Path, default=None)
     args = parser.parse_args()
 
-    # Make urllib.parse available for _query_nasa_archive
-    globals()["urllib.parse"] = urllib.parse
-
     crossmatch(args.summary, args.output)
 
-
-# Fix: ensure urllib.parse is importable at module level
-import urllib.parse  # noqa: E402, F811
 
 if __name__ == "__main__":
     main()

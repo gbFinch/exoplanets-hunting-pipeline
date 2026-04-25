@@ -265,3 +265,61 @@ def vet_bls_candidates(
             odd_even_status=odd_even_status,
         )
     return results
+
+
+_SUBHARMONIC_DIVISORS = (2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+
+def check_known_period_subharmonics(
+    candidates: list[BLSCandidate],
+    vetting_by_rank: dict[int, CandidateVettingResult],
+    known_periods: list[float],
+    tolerance: float = 0.03,
+) -> dict[int, CandidateVettingResult]:
+    """Flag candidates whose period is a sub-harmonic (P_known/N) of a known planet."""
+    from dataclasses import replace
+
+    if not known_periods:
+        return vetting_by_rank
+
+    updated = dict(vetting_by_rank)
+    for c in candidates:
+        vr = updated.get(c.rank)
+        if not vr or not vr.vetting_pass:
+            continue
+        for kp in known_periods:
+            for n in _SUBHARMONIC_DIVISORS:
+                if abs(c.period_days - kp / n) / c.period_days < tolerance:
+                    reasons = [r for r in vr.vetting_reasons.split(";") if r != "pass"]
+                    reasons.append(f"toi_subharmonic_1/{n}_of_{kp:.1f}d")
+                    new_reasons = ";".join(reasons)
+                    updated[c.rank] = replace(
+                        vr,
+                        pass_alias_harmonic=False,
+                        vetting_pass=False,
+                        vetting_reasons=new_reasons,
+                    )
+                    break
+            else:
+                continue
+            break
+    return updated
+
+
+def override_vetting_for_centroid(
+    vetting_by_rank: dict[int, CandidateVettingResult],
+    centroid_results: dict,
+) -> dict[int, CandidateVettingResult]:
+    """Override vetting results for candidates that fail centroid checks."""
+    from dataclasses import replace
+
+    updated = dict(vetting_by_rank)
+    for rank, cr in centroid_results.items():
+        vr = updated.get(rank)
+        if vr and not cr.passed and cr.status == "fail":
+            updated[rank] = replace(
+                vr,
+                vetting_pass=False,
+                vetting_reasons=vr.vetting_reasons + ";centroid_shift",
+            )
+    return updated

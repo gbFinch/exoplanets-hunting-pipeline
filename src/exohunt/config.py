@@ -3,12 +3,13 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
-import hashlib
 from importlib import resources
 import json
 import logging
 from pathlib import Path
 from typing import Any, Mapping
+
+from exohunt.cache import content_hash
 
 try:
     import tomllib
@@ -111,6 +112,17 @@ class RuntimeConfig:
     bls: BLSConfig
     vetting: VettingConfig
     parameters: ParameterConfig
+
+
+@dataclass(frozen=True)
+class PresetMeta:
+    name: str | None = None
+    version: int | None = None
+    hash: str | None = None
+
+    @property
+    def is_set(self) -> bool:
+        return self.name is not None
 
 
 _DEFAULTS: dict[str, Any] = {
@@ -235,11 +247,10 @@ def _load_builtin_preset_values() -> dict[str, dict[str, Any]]:
 
 
 def _stable_hash(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
-    return hashlib.sha1(encoded).hexdigest()[:16]
+    return content_hash(payload)
 
 
-def get_builtin_preset_metadata(name: str) -> tuple[str, int, str]:
+def get_builtin_preset_metadata(name: str) -> PresetMeta:
     preset_values = _load_builtin_preset_documents().get(name)
     if preset_values is None:
         available = ", ".join(list_builtin_presets())
@@ -252,7 +263,7 @@ def get_builtin_preset_metadata(name: str) -> tuple[str, int, str]:
             "values": preset_values,
         }
     )
-    return name, BUILTIN_PRESET_PACK_VERSION, preset_hash
+    return PresetMeta(name=name, version=BUILTIN_PRESET_PACK_VERSION, hash=preset_hash)
 
 
 def _encode_toml_value(value: Any) -> str:

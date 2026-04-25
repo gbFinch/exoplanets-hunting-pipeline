@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from exohunt import comparison
+from exohunt import metrics_io
 from exohunt import pipeline
 from exohunt.bls import BLSCandidate, refine_bls_candidates, run_bls_search
 from exohunt.cache import (
@@ -14,11 +15,14 @@ from exohunt.cache import (
     _safe_target_name,
     _target_output_dir,
 )
-from exohunt.pipeline import fetch_and_plot, run_batch_analysis
+from exohunt.batch import run_batch_analysis
+from exohunt.pipeline import fetch_and_plot
 from exohunt.plotting import _downsample_minmax, save_candidate_diagnostics
 from exohunt.preprocess import compute_preprocessing_quality_metrics
 from exohunt.parameters import estimate_candidate_parameters
 from exohunt.vetting import vet_bls_candidates
+
+from conftest import _test_config
 
 
 def test_safe_target_name():
@@ -113,7 +117,7 @@ def test_fetch_and_plot_uses_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
-    output_path = fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
+    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
     assert output_path is not None
     assert output_path.exists()
     assert (tmp_path / "outputs/metrics/preprocessing_summary.csv").exists()
@@ -148,7 +152,7 @@ def test_fetch_and_plot_uses_prepared_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
-    output_path = fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
+    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
     assert output_path is not None
     assert output_path.exists()
     assert (tmp_path / "outputs/metrics/preprocessing_summary.csv").exists()
@@ -191,7 +195,7 @@ def test_fetch_and_plot_downloads_and_caches(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _fake_search)
     monkeypatch.chdir(tmp_path)
 
-    output_path = fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="per-sector")
+    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="per-sector"), cache_dir=cache_dir)
     assert output_path is not None
     assert output_path.exists()
     segment_root = cache_dir / "segments" / "tic_261136679"
@@ -246,9 +250,8 @@ def test_fetch_and_plot_runs_bls_per_sector(monkeypatch, tmp_path):
 
     fetch_and_plot(
         target,
+        config=_test_config(preprocess_mode="per-sector", bls_mode="per-sector"),
         cache_dir=cache_dir,
-        preprocess_mode="per-sector",
-        bls_mode="per-sector",
     )
     assert call_count["n"] == 2
 
@@ -292,9 +295,8 @@ def test_fetch_and_plot_generates_per_sector_plots(monkeypatch, tmp_path):
 
     output_path = fetch_and_plot(
         target,
+        config=_test_config(preprocess_mode="per-sector", plot_mode="per-sector"),
         cache_dir=cache_dir,
-        preprocess_mode="per-sector",
-        plot_mode="per-sector",
     )
     assert output_path is not None
     assert output_path.exists()
@@ -340,7 +342,7 @@ def test_fetch_and_plot_reuses_metrics_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
-    first_output = fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
+    first_output = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
     assert first_output is not None
     assert first_output.exists()
 
@@ -348,7 +350,7 @@ def test_fetch_and_plot_reuses_metrics_cache(monkeypatch, tmp_path):
         raise AssertionError("compute_preprocessing_quality_metrics should not run on cache hit")
 
     monkeypatch.setattr(pipeline, "compute_preprocessing_quality_metrics", _should_not_compute)
-    second_output = fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
+    second_output = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
     assert second_output is not None
     assert second_output.exists()
 
@@ -372,9 +374,8 @@ def test_fetch_and_plot_no_preprocess_skips_prepare_lightcurve(monkeypatch, tmp_
 
     output_path = fetch_and_plot(
         target,
+        config=_test_config(preprocess_mode="stitched", preprocess_enabled=False),
         cache_dir=cache_dir,
-        preprocess_mode="stitched",
-        preprocess_enabled=False,
     )
     assert output_path is not None
     assert output_path.exists()
@@ -403,8 +404,8 @@ def test_fetch_and_plot_manifest_comparison_key_stable_for_same_settings(monkeyp
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
-    fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
-    fetch_and_plot(target, cache_dir=cache_dir, preprocess_mode="global")
+    fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
+    fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
 
     manifest_dir = tmp_path / "outputs/tic_261136679/manifests"
     manifest_files = sorted(manifest_dir.glob("*.json"))
@@ -448,14 +449,12 @@ def test_fetch_and_plot_manifest_includes_preset_metadata(monkeypatch, tmp_path)
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
+    from exohunt.config import PresetMeta
     fetch_and_plot(
         target,
+        config=_test_config(preprocess_mode="stitched"),
+        preset_meta=PresetMeta(name="science-default", version=1, hash="abc123def4567890"),
         cache_dir=cache_dir,
-        preprocess_mode="global",
-        config_schema_version=1,
-        config_preset_id="science-default",
-        config_preset_version=1,
-        config_preset_hash="abc123def4567890",
     )
 
     manifest_dir = tmp_path / "outputs/tic_261136679/manifests"
@@ -474,7 +473,7 @@ def test_run_batch_analysis_resumable_and_failure_isolated(monkeypatch, tmp_path
 
     calls: list[str] = []
 
-    def _fake_fetch_and_plot(target, **kwargs):
+    def _fake_fetch_and_plot(target, config, preset_meta=None, **kwargs):
         calls.append(target)
         if target == "TIC 2":
             raise RuntimeError("simulated failure")
@@ -488,6 +487,7 @@ def test_run_batch_analysis_resumable_and_failure_isolated(monkeypatch, tmp_path
 
     run_batch_analysis(
         targets=targets,
+        config=_test_config(),
         cache_dir=tmp_path / "cache",
         resume=False,
         state_path=state_path,
@@ -510,6 +510,7 @@ def test_run_batch_analysis_resumable_and_failure_isolated(monkeypatch, tmp_path
     calls.clear()
     run_batch_analysis(
         targets=targets,
+        config=_test_config(),
         cache_dir=tmp_path / "cache",
         resume=True,
         state_path=state_path,
@@ -539,8 +540,8 @@ def test_fetch_and_plot_generates_stitched_plot_by_default(monkeypatch, tmp_path
 
     output_path = fetch_and_plot(
         target,
+        config=_test_config(preprocess_mode="stitched"),
         cache_dir=cache_dir,
-        preprocess_mode="global",
     )
     assert output_path is not None
     assert output_path.exists()
@@ -591,13 +592,13 @@ def test_preprocessing_summary_csv_column_order_stable(monkeypatch, tmp_path):
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         rows = list(reader)
-        assert reader.fieldnames == pipeline._PREPROCESSING_SUMMARY_COLUMNS
+        assert reader.fieldnames == metrics_io._PREPROCESSING_SUMMARY_COLUMNS
 
     target_csv_path = tmp_path / "outputs/tic_1/metrics/preprocessing_summary.csv"
     with target_csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         target_rows = list(reader)
-        assert reader.fieldnames == pipeline._PREPROCESSING_SUMMARY_COLUMNS
+        assert reader.fieldnames == metrics_io._PREPROCESSING_SUMMARY_COLUMNS
 
     assert len(target_rows) == 2
     assert len(rows) == 2
