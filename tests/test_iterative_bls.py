@@ -171,6 +171,8 @@ class TestIterativeBLSSearch:
         lc = _make_lk_lightcurve(time, flux)
         config_iter = _make_bls_config(iterative_passes=1, min_snr=5.0)
         iter_candidates = run_iterative_bls_search(lc, config_iter)
+        # Iterative returns ALL candidates from the pass (vetting is the
+        # caller's responsibility). Baseline must use the same top_n.
         direct_candidates = run_bls_search(
             lc,
             period_min_days=config_iter.period_min_days,
@@ -179,7 +181,7 @@ class TestIterativeBLSSearch:
             duration_max_hours=config_iter.duration_max_hours,
             n_periods=config_iter.n_periods,
             n_durations=config_iter.n_durations,
-            top_n=config_iter.iterative_top_n,
+            top_n=config_iter.top_n,
             unique_period_separation_fraction=config_iter.unique_period_separation_fraction,
             min_snr=config_iter.min_snr,
         )
@@ -196,7 +198,14 @@ class TestIterativeBLSSearch:
         lc = _make_lk_lightcurve(time, flux)
         config = _make_bls_config(iterative_passes=5, min_snr=7.0)
         candidates = run_iterative_bls_search(lc, config)
-        assert len(candidates) < 5, "Should stop early when no more signals above SNR"
+        # With one injected signal, the loop should stop after masking it —
+        # subsequent passes find nothing above min_snr. Verify by the number
+        # of iterations represented, not the candidate count.
+        iterations_seen = {c.iteration for c in candidates}
+        assert len(iterations_seen) < 5, (
+            f"Should stop early when no more signals above SNR; "
+            f"saw iterations {sorted(iterations_seen)}"
+        )
 
     # TC-U-08 | Covers: FR-4
     def test_early_termination_few_points(self):
@@ -218,6 +227,38 @@ class TestIterativeBLSSearch:
         config = _make_bls_config(iterative_passes=3, min_snr=7.0)
         candidates = run_iterative_bls_search(lc, config)
         assert candidates == []
+
+    # Regression: TIC 317597583 scenario — iterative must NOT gate masking on
+    # vetting. A dominant systematic that fails odd/even must still be masked
+    # so weaker real signals surface in later passes.
+    def test_masks_top_peak_regardless_of_vetting(self):
+        # Pass 1 top peak: asymmetric P=4.0d signal (odd transits deeper than
+        # even). Vetting would flag it. Pass 2, with the 4.0d signal masked,
+        # must surface the clean weaker P=7.0d signal.
+        time = np.linspace(0, 90, 20000)
+        flux = np.ones_like(time)
+        rng = np.random.default_rng(42)
+        flux += rng.normal(0, 1e-4, len(flux))
+        # Strong asymmetric signal — odd transits 2x deeper than even
+        for n in range(int(90 / 4.0) + 2):
+            epoch = 0.3 + n * 4.0
+            depth = 0.006 if (n % 2 == 0) else 0.003
+            flux[np.abs(time - epoch) < 0.05] -= depth
+        # Cleaner weaker signal (lower BLS power, but symmetric)
+        for n in range(int(90 / 7.0) + 2):
+            epoch = 1.1 + n * 7.0
+            flux[np.abs(time - epoch) < 0.04] -= 0.0008
+        lc = _make_lk_lightcurve(time, flux)
+        config = _make_bls_config(iterative_passes=3, iterative_top_n=1,
+                                  min_snr=5.0)
+        candidates = run_iterative_bls_search(lc, config)
+        periods = [c.period_days for c in candidates]
+        # Under old (vet-before-mask) semantics, the loop aborted on pass 1
+        # because the asymmetric signal failed odd/even, never exposing 7.0d.
+        assert any(abs(p - 7.0) / 7.0 < 0.05 for p in periods), (
+            f"Expected ~7.0d signal after masking dominant 4.0d peak; "
+            f"got periods={periods}"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -386,11 +386,15 @@ def run_iterative_bls_search(
     lc: lk.LightCurve | None = None,
     stellar_params: "StellarParams | None" = None,
 ) -> list[BLSCandidate]:
-    """Run iterative BLS with transit masking between passes.
+    """Run iterative BLS/TLS with transit masking between passes.
 
-    Wraps run_bls_search() in a loop: each iteration masks detected transits
-    (setting in-transit points to NaN) and optionally re-flattens the light
-    curve before the next BLS pass.
+    Each pass masks the top-power peak(s) and re-searches, accumulating all
+    peaks across passes. Masking is deliberately decoupled from vetting: a
+    dominant systematic must be masked to reveal weaker real signals beneath
+    it. Vetting is applied by the caller on the full returned list.
+
+    Stops early when a pass returns no non-duplicate candidates or when
+    fewer than 100 valid points remain.
     """
     time = np.asarray(lc_prepared.time.value, dtype=float)
     flux = np.asarray(lc_prepared.flux.value, dtype=float).copy()
@@ -431,47 +435,45 @@ def run_iterative_bls_search(
                 top_n=config.top_n,
                 unique_period_separation_fraction=config.unique_period_separation_fraction,
                 min_snr=config.min_snr,
-            normalized=normalized,
-        )
-        # Take only the top iterative_top_n for subtraction
-        # Filter degenerate candidates where mask would cover most of the orbit
+                normalized=normalized,
+            )
+
+        # Data-sanity filter: drop candidates whose mask would cover more
+        # than half the orbit. Not vetting — a transit this wide isn't a
+        # transit and masking it would erase most of the LC.
         candidates = [
             c for c in candidates
             if (c.duration_hours / 24.0 * config.transit_mask_padding_factor
                 / c.period_days) <= 0.5
         ]
-        candidates = candidates[: config.iterative_top_n]
-
-        new_this_iter: list[BLSCandidate] = []
-        # Vet candidates before masking so that spurious signals
-        # (e.g. odd/even failures, aliases) don't consume mask budget
-        # and destroy data for subsequent iterations.
-        from exohunt.vetting import vet_bls_candidates
-
-        iter_vetting = vet_bls_candidates(iter_lc, candidates)
-        for cand in candidates:
-            vetting_result = iter_vetting.get(cand.rank)
-            if vetting_result is not None and not vetting_result.vetting_pass:
-                continue
-            if not _cross_iteration_unique(cand, accepted_for_masking):
-                continue
-            tagged = BLSCandidate(
-                rank=cand.rank, period_days=cand.period_days,
-                duration_hours=cand.duration_hours, depth=cand.depth,
-                depth_ppm=cand.depth_ppm, power=cand.power,
-                transit_time=cand.transit_time,
-                transit_count_estimate=cand.transit_count_estimate,
-                snr=cand.snr, fap=cand.fap, iteration=iteration,
-            )
-            new_this_iter.append(tagged)
-
-        if not new_this_iter:
+        if not candidates:
             break
 
-        all_candidates.extend(new_this_iter)
-        accepted_for_masking.extend(new_this_iter)
+        # Tag every candidate from this pass with the iteration index.
+        tagged_all = [
+            BLSCandidate(
+                rank=c.rank, period_days=c.period_days,
+                duration_hours=c.duration_hours, depth=c.depth,
+                depth_ppm=c.depth_ppm, power=c.power,
+                transit_time=c.transit_time,
+                transit_count_estimate=c.transit_count_estimate,
+                snr=c.snr, fap=c.fap, iteration=iteration,
+            )
+            for c in candidates
+        ]
 
-        # Build cumulative mask and apply
+        # Pick top-power peaks for masking (no vetting — see docstring).
+        # Skip periods already masked in prior iterations.
+        masking_candidates = [
+            c for c in tagged_all[: config.iterative_top_n]
+            if _cross_iteration_unique(c, accepted_for_masking)
+        ]
+        if not masking_candidates:
+            break
+
+        all_candidates.extend(tagged_all)
+        accepted_for_masking.extend(masking_candidates)
+
         cumulative_mask = _build_transit_mask(
             time, accepted_for_masking, config.transit_mask_padding_factor,
         )

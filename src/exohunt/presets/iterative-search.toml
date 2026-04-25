@@ -1,3 +1,7 @@
+# Iterative-search preset: mask the top-power peak each pass, re-search,
+# accumulate all peaks across passes. Vetting is applied by the caller on
+# the full list. Real weak signals hiding under dominant systematics
+# surface in pass 2+ once the systematic is masked.
 schema_version = 1
 preset = "iterative-search"
 
