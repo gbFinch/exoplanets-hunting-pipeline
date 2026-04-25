@@ -57,15 +57,21 @@ No config file needed — just pass the preset name directly:
 python -m exohunt.cli batch \
   --targets-file .docs/targets_premium.txt \
   --config iterative-search \
-  --resume --no-cache
+  --run-name premium_search \
+  --no-cache
 ```
+
+`--run-name` is optional but recommended — it appends a label to the auto-generated run id (timestamp + preset), making the run directory easier to identify later.
 
 To customize, export and edit:
 
 ```bash
 python -m exohunt.cli init-config --from iterative-search --out ./configs/my_search.toml
 # Edit configs/my_search.toml, then:
-python -m exohunt.cli batch --targets-file targets.txt --config ./configs/my_search.toml --resume
+python -m exohunt.cli batch \
+  --targets-file targets.txt \
+  --config ./configs/my_search.toml \
+  --run-name my_search
 ```
 
 ### What the pipeline does for each target
@@ -90,95 +96,145 @@ python -m exohunt.cli batch --targets-file targets.txt --config ./configs/my_sea
 python -m exohunt.cli batch \
   --targets-file .docs/targets_premium.txt \
   --config iterative-search \
-  --resume --no-cache \
-  > outputs/search_run.log 2>&1 &
+  --run-name premium_search \
+  --no-cache \
+  > outputs/logs/search_run.log 2>&1 &
 ```
 
-- `--resume` — skips already-completed targets if the run is restarted
-- `--no-cache` — forces fresh light curve downloads (recommended for first run)
-- `> outputs/search_run.log 2>&1 &` — runs in background, logs to file
+- `--run-name premium_search` — labels the run directory (e.g.
+  `outputs/runs/2026-04-25T17-00-00_iterative-search_premium_search/`).
+  Optional; the timestamp+preset alone is already unique.
+- `--no-cache` — disables writing light curve cache files to save disk space.
+  Raw LC data will still be downloaded; it just won't be persisted.
+- `> outputs/logs/search_run.log 2>&1 &` — runs in background, logs to file.
 
 On macOS, prevent sleep:
 
 ```bash
+mkdir -p outputs/logs
 nohup caffeinate -dims python -m exohunt.cli batch \
   --targets-file .docs/targets_premium.txt \
   --config iterative-search \
-  --resume --no-cache \
-  > outputs/search_run.log 2>&1 &
+  --run-name premium_search \
+  --no-cache \
+  > outputs/logs/search_run.log 2>&1 &
 echo "PID: $!"
 ```
 
+### Resume an interrupted batch
+
+If a batch was interrupted, resume by pointing `--resume` at the existing
+run directory. The run's `run_state.json` tracks completed targets, so they
+are skipped on resume:
+
+```bash
+python -m exohunt.cli batch \
+  --targets-file .docs/targets_premium.txt \
+  --config iterative-search \
+  --resume outputs/runs/2026-04-25T17-00-00_iterative-search_premium_search \
+  > outputs/logs/search_run_resume.log 2>&1 &
+```
+
+The `--config` and `--targets-file` must match the original run for
+resume to be meaningful.
+
 ### Expand to more targets
 
-After the premium tier finishes, expand with `--resume` (skips already-done targets):
+Running a larger tier is a **new run**, not a resume — it creates its own
+run directory. Completed targets from prior runs are NOT automatically
+skipped across runs; the cache (`outputs/cache/`) handles reuse of
+downloaded light curves:
 
 ```bash
 python -m exohunt.cli batch \
   --targets-file .docs/targets_iterative_search.txt \
   --config iterative-search \
-  --resume --no-cache \
-  > outputs/search_run_full.log 2>&1 &
+  --run-name iterative_full \
+  > outputs/logs/search_run_full.log 2>&1 &
 ```
 
 ---
 
 ## Phase 3: Monitor
 
+All artifacts for a run live under `outputs/runs/<run-id>/`. Set a shell
+variable to save typing:
+
+```bash
+RUN=outputs/runs/2026-04-25T17-00-00_iterative-search_premium_search
+```
+
 ### Live candidate files
 
-During the run, two CSVs are updated in real-time:
+During the run, two CSVs are updated in real-time inside the run directory:
 
 | File | Contents |
 |------|----------|
-| `outputs/batch/candidates_live.csv` | All candidates from all targets (passing and failing) |
-| `outputs/batch/candidates_novel.csv` | **Only passing candidates that don't match any known planet or TOI** |
+| `$RUN/candidates_live.csv` | All candidates from all targets (passing and failing) |
+| `$RUN/candidates_novel.csv` | **Only passing candidates that don't match any known planet or TOI** |
 
 The novel CSV is the one you want to watch:
 
 ```bash
 # Watch for new novel candidates
-tail -f outputs/batch/candidates_novel.csv
+tail -f "$RUN/candidates_novel.csv"
 
 # Or grep the log for the 📡 marker
-grep "📡" outputs/search_run.log
+grep "📡" outputs/logs/search_run.log
 ```
 
 ### Batch status
 
 ```bash
 # Quick status check
-cat outputs/batch/run_status.csv
+cat "$RUN/run_status.csv"
 
-# How many targets done
-grep -c "success" outputs/batch/run_status.csv
+# How many targets succeeded
+grep -c "success" "$RUN/run_status.csv"
 
 # Any failures
-grep "error" outputs/batch/run_status.csv
+grep "failed" "$RUN/run_status.csv"
 ```
+
+### Run summary
+
+Each run writes a human-readable `README.md` at the end:
+
+```bash
+cat "$RUN/README.md"
+```
+
+It lists start/end timestamps, runtime, preset, and a per-target pass/fail
+summary.
 
 ### Log monitoring
 
 ```bash
 # Last target being processed
-grep "Target:" outputs/search_run.log | tail -1
+grep "Target:" outputs/logs/search_run.log | tail -1
 
 # Pre-masking activity
-grep "Pre-masking:" outputs/search_run.log | tail -5
+grep "Pre-masking:" outputs/logs/search_run.log | tail -5
 
 # BLS completion times
-grep "BLS complete" outputs/search_run.log | tail -5
+grep "BLS complete" outputs/logs/search_run.log | tail -5
 ```
 
 ---
 
 ## Phase 4: Analyze
 
+Analysis operates on a single run directory. Export it once:
+
+```bash
+RUN=outputs/runs/2026-04-25T17-00-00_iterative-search_premium_search
+```
+
 ### Step 1: Review novel candidates
 
 ```bash
 # View novel candidates sorted by SDE
-cat outputs/batch/candidates_novel.csv | sort -t, -k5 -rn
+cat "$RUN/candidates_novel.csv" | sort -t, -k5 -rn
 ```
 
 Columns: `target, rank, period_days, depth_ppm, snr, duration_hours, transit_time, iteration, vetting_reasons, vetting_pass`
@@ -192,21 +248,22 @@ Key fields to check:
 ### Step 2: Collect all candidates
 
 ```bash
-python -m exohunt.collect
+python -m exohunt.collect --run-dir "$RUN"
 ```
 
-Produces `outputs/candidates_summary.json` with all vetted candidates across every target.
+Produces `$RUN/candidates_summary.json` with all vetted candidates across every
+target in that run.
 
 Options:
 ```bash
-python -m exohunt.collect --iterative-only   # only candidates from iteration >= 1
-python -m exohunt.collect --all              # include failed vetting too
+python -m exohunt.collect --run-dir "$RUN" --iterative-only   # only candidates from iteration >= 1
+python -m exohunt.collect --run-dir "$RUN" --all              # include failed vetting too
 ```
 
 ### Step 3: Cross-match against NASA archive
 
 ```bash
-python -m exohunt.crossmatch
+python -m exohunt.crossmatch "$RUN/candidates_summary.json"
 ```
 
 Labels each candidate as:
@@ -214,13 +271,13 @@ Labels each candidate as:
 - **HARMONIC** — matches a harmonic (0.5×, 2×, 3×) of a known planet
 - **NEW** — no match found (worth manual review)
 
-Results: `outputs/candidates_crossmatched.json`
+Results: `$RUN/candidates_crossmatched.json`
 
 ### Step 4: Manual review of NEW candidates
 
 For each NEW candidate, check:
 
-1. **Diagnostics plots** — `outputs/<target>/diagnostics/`
+1. **Diagnostics plots** — `$RUN/<target>/diagnostics/`
    - Periodogram: is the peak clean or surrounded by aliases?
    - Phase-folded light curve: does it look like a transit?
 
@@ -230,16 +287,18 @@ For each NEW candidate, check:
 
 4. **ExoFOP check** — search the target on [ExoFOP](https://exofop.ipac.caltech.edu/tess/) for community notes, dispositions, or ground-based follow-up
 
-5. **Centroid check** — `outputs/<target>/diagnostics/` centroid plots (if available)
+5. **Centroid check** — centroid pass/fail is reported in the log and embedded in the candidate JSON's `vetting_reasons` (look for `centroid_shift` flag)
 
 ### Step 5: TRICERATOPS validation (for promising candidates)
 
-For candidates that survive manual review, run TRICERATOPS:
+For candidates that survive manual review, run TRICERATOPS on a single target.
+This creates a separate run directory:
 
 ```bash
 python -m exohunt.cli run \
   --target "TIC 123456789" \
-  --config ./configs/validate.toml
+  --config ./configs/validate.toml \
+  --run-name triceratops_validate
 ```
 
 With `configs/validate.toml`:
@@ -276,38 +335,62 @@ TRICERATOPS thresholds (Giacalone & Dressing 2020):
 # Single target quick look
 python -m exohunt.cli run --target "TIC 261136679" --config quicklook
 
-# Single target full analysis
-python -m exohunt.cli run --target "TIC 261136679" --config deep-search
+# Single target full analysis with a label
+python -m exohunt.cli run --target "TIC 261136679" --config deep-search --run-name deep_look
 
-# Batch with resume
-python -m exohunt.cli batch --targets-file targets.txt --config my_search.toml --resume
+# Batch
+python -m exohunt.cli batch \
+  --targets-file targets.txt --config my_search.toml --run-name q2_sweep
 
-# Collect results
-python -m exohunt.collect
+# Resume an interrupted batch (pass the run directory)
+python -m exohunt.cli batch \
+  --targets-file targets.txt --config my_search.toml \
+  --resume outputs/runs/2026-04-25T17-00-00_my_search_q2_sweep
 
-# Cross-match
-python -m exohunt.crossmatch
+# Collect results from a specific run
+python -m exohunt.collect --run-dir outputs/runs/<run-id>
 
-# Clean light curve cache (reclaim disk space)
+# Cross-match (needs the summary JSON produced by collect)
+python -m exohunt.crossmatch outputs/runs/<run-id>/candidates_summary.json
+
+# Find the most recent run
+ls -t outputs/runs | head -1
+
+# Clean light curve cache (reclaim disk space; cache is rebuilt from MAST on next run)
 rm -rf outputs/cache/lightcurves
+
+# Remove an old run (destructive — artifacts gone)
+rm -rf outputs/runs/<run-id>
 ```
 
 ### Output structure
 
 ```
 outputs/
-  batch/
-    candidates_live.csv      ← all candidates (live, append-mode)
-    candidates_novel.csv     ← novel candidates only (live, append-mode)
-    run_state.json           ← resumable batch state
-    run_status.csv           ← per-target status
-  <target>/
-    candidates/              ← candidate JSON/CSV per target
-    diagnostics/             ← periodograms, phase-folded plots
-    plots/                   ← prepared light curve plots
-    manifests/               ← run metadata, config hashes
-  candidates_summary.json    ← collected candidates (after collect)
-  candidates_crossmatched.json ← cross-matched (after crossmatch)
+  cache/                                    ← shared across all runs (reusable)
+    lightcurves/
+      <target>.npz                          ← stitched raw light curve
+      segments/<target>/                    ← per-sector raw + prepared caches
+      metrics/<target>__metrics_*.json      ← preprocessing metrics cache
+  logs/                                     ← shell-redirected stdout/stderr logs
+  runs/
+    2026-04-25T17-00-00_iterative-search_premium_search/   ← one run
+      README.md                             ← human-readable run summary
+      run_state.json                        ← resumable batch state
+      run_status.csv                        ← per-target status (success/failed)
+      run_status.json                       ← status sidecar
+      run_manifest_index.csv                ← index of per-target manifests
+      candidates_live.csv                   ← all candidates from this run
+      candidates_novel.csv                  ← novel candidates from this run
+      preprocessing_summary.csv             ← per-target preprocessing metrics
+      candidates_summary.json               ← written by `exohunt.collect`
+      candidates_crossmatched.json          ← written by `exohunt.crossmatch`
+      <target>/
+        candidates/              ← candidate JSON/CSV for this run
+        diagnostics/             ← periodograms, phase-folded plots
+        plots/                   ← prepared light curve plots
+        manifests/               ← per-run target manifest (config hash, versions)
+        metrics/                 ← per-target preprocessing summary copy
 ```
 
 ### Built-in presets
@@ -324,7 +407,10 @@ outputs/
 ## Tips
 
 - **Start with premium targets** — they have the best data (bright, many sectors). If the pipeline finds nothing there, it won't find anything in noisier data.
-- **Clean old batch CSVs before a new run** — `rm outputs/batch/candidates_*.csv` to avoid mixing results from different runs.
-- **Watch disk space** — each target produces ~1MB of artifacts. 3200 targets ≈ 3.2 GB.
+- **Each invocation is a run** — there are no "global" aggregates. The per-run layout means restarting an analysis cannot accidentally mix with prior results.
+- **Use `--run-name`** for meaningful labels when you'll revisit a batch later (e.g., `--run-name q2_2026_bright_targets`). Without it you still get a unique timestamp-based id.
+- **Resume is explicit** — `--resume <path>` only makes sense for the same targets file and config that produced the run. Resumption skips targets already in `run_state.json`.
+- **Watch disk space** — each target produces ~1MB of artifacts per run. 3200 targets ≈ 3.2 GB per run. Multiple runs accumulate.
+- **Cache is shared and safe to reuse** — `outputs/cache/` is untouched by new runs unless `--no-cache` is passed, and even then only writes are disabled (reads still hit the existing cache). You can safely delete `outputs/runs/<id>/` without affecting other runs or the cache.
 - **MAST rate limits** — if you see many timeouts, the MAST server may be overloaded. The pipeline retries automatically, but very long runs may benefit from running overnight when MAST traffic is lower.
 - **Iteration 0 vs 1+** — iteration 0 candidates are found after pre-masking known planets. Iteration 1+ candidates are found after additionally masking the iteration 0 signal. Multi-planet systems show up at iteration 1+.
