@@ -139,8 +139,8 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Cross-reference candidates against known planets")
-    parser.add_argument("summary", type=Path, nargs="?",
-                        default=Path("outputs/candidates_summary.json"))
+    parser.add_argument("summary", type=Path,
+                        help="Path to candidates_summary.json")
     parser.add_argument("-o", "--output", type=Path, default=None)
     args = parser.parse_args()
 

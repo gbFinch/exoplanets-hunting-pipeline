@@ -6,14 +6,14 @@ from pathlib import Path
 
 
 def collect_passed_candidates(
-    outputs_dir: Path = Path("outputs"),
+    run_dir: Path,
     iterative_only: bool = False,
     passed_only: bool = True,
 ) -> dict:
-    """Scan all target candidate JSONs and collect results.
+    """Scan all target candidate JSONs in a single run directory.
 
     Args:
-        outputs_dir: Root outputs directory.
+        run_dir: Root run directory.
         iterative_only: If True, only include candidates from iteration >= 1.
         passed_only: If True, only include candidates that passed vetting.
 
@@ -22,7 +22,7 @@ def collect_passed_candidates(
     """
     results: dict[str, list[dict]] = {}
 
-    for json_path in sorted(outputs_dir.rglob("candidates/*__bls_*.json")):
+    for json_path in sorted(run_dir.rglob("candidates/*__bls_*.json")):
         # Skip per-iteration files — use the combined file only
         if "_iter_" in json_path.name:
             continue
@@ -47,7 +47,7 @@ def collect_passed_candidates(
                 "rank": cand["rank"],
                 "vetting_reasons": cand.get("vetting_reasons", ""),
                 "transit_count_observed": cand.get("transit_count_observed"),
-                "source_file": str(json_path.relative_to(outputs_dir)),
+                "source_file": str(json_path.relative_to(run_dir)),
             }
             results.setdefault(target, []).append(entry)
 
@@ -71,19 +71,20 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Collect passed BLS candidates across all targets")
-    parser.add_argument("--outputs-dir", type=Path, default=Path("outputs"))
+    parser.add_argument("--run-dir", type=Path, required=True,
+                        help="Path to a run directory under outputs/runs/.")
     parser.add_argument("--iterative-only", action="store_true",
                         help="Only include candidates from iteration >= 1 (new discoveries)")
     parser.add_argument("--all", action="store_true",
                         help="Include failed vetting candidates too")
     parser.add_argument("-o", "--output", type=Path, default=None,
-                        help="Output JSON path (default: outputs/candidates_summary.json)")
+                        help="Output JSON path (default: <run-dir>/candidates_summary.json)")
     args = parser.parse_args()
 
-    out_path = args.output or args.outputs_dir / "candidates_summary.json"
+    out_path = args.output or args.run_dir / "candidates_summary.json"
 
     summary = collect_passed_candidates(
-        outputs_dir=args.outputs_dir,
+        run_dir=args.run_dir,
         iterative_only=args.iterative_only,
         passed_only=not args.all,
     )

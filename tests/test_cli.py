@@ -6,16 +6,20 @@ from pathlib import Path
 from exohunt import cli
 
 
-def test_run_command_uses_resolved_config(monkeypatch):
+def test_run_command_uses_resolved_config(monkeypatch, tmp_path):
     captured: dict[str, object] = {}
 
-    def _fake_fetch_and_plot(target, config, preset_meta=None, **kwargs):
+    def _fake_fetch_and_plot(target, config, run_dir, preset_meta=None, **kwargs):
         captured["target"] = target
         captured["config"] = config
         captured["preset_meta"] = preset_meta
+        captured["run_dir"] = run_dir
         return None
 
     monkeypatch.setattr(cli, "fetch_and_plot", _fake_fetch_and_plot)
+    run_dir = tmp_path / "test_run"
+    run_dir.mkdir()
+    monkeypatch.setattr(cli, "_new_run_dir", lambda *a, **kw: run_dir)
 
     rc = cli.main(["run", "--target", "TIC 123", "--config", "quicklook"])
 
@@ -32,14 +36,18 @@ def test_batch_command_uses_targets_file(monkeypatch, tmp_path: Path):
 
     captured: dict[str, object] = {}
 
-    def _fake_run_batch_analysis(targets, config, preset_meta=None, **kwargs):
+    def _fake_run_batch_analysis(targets, config, run_dir, preset_meta=None, **kwargs):
         captured["targets"] = targets
         captured["config"] = config
         captured["preset_meta"] = preset_meta
+        captured["run_dir"] = run_dir
         captured.update(kwargs)
         return None
 
     monkeypatch.setattr(cli, "run_batch_analysis", _fake_run_batch_analysis)
+    run_dir = tmp_path / "batch_run"
+    run_dir.mkdir()
+    monkeypatch.setattr(cli, "_new_run_dir", lambda *a, **kw: run_dir)
 
     rc = cli.main(
         [
@@ -48,13 +56,11 @@ def test_batch_command_uses_targets_file(monkeypatch, tmp_path: Path):
             str(targets_file),
             "--config",
             "science-default",
-            "--resume",
         ]
     )
 
     assert rc == 0
     assert captured["targets"] == ["TIC 1", "TIC 2"]
-    assert captured["resume"] is True
     assert captured["preset_meta"].name == "science-default"
 
 
@@ -66,16 +72,18 @@ def test_init_config_command_writes_file(tmp_path: Path):
     assert 'preset = "deep-search"' in content
 
 
-def test_legacy_cli_emits_deprecation_and_maps_global(monkeypatch, caplog):
+def test_legacy_cli_emits_deprecation_and_maps_global(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.WARNING)
     captured: dict[str, object] = {}
 
-    def _fake_fetch_and_plot(target, config, preset_meta=None, **kwargs):
+    def _fake_fetch_and_plot(target, config, run_dir, preset_meta=None, **kwargs):
         captured["target"] = target
         captured["config"] = config
         return None
 
     monkeypatch.setattr(cli, "fetch_and_plot", _fake_fetch_and_plot)
+    monkeypatch.setattr(cli, "_new_run_dir", lambda *a, **kw: tmp_path / "legacy_run")
+    (tmp_path / "legacy_run").mkdir()
 
     rc = cli.main(["--target", "TIC 456", "--preprocess-mode", "global"])
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import platform
 import sys
 from importlib.metadata import PackageNotFoundError, version as package_version
@@ -77,6 +78,7 @@ def _write_run_manifest(
     config_payload: dict[str, str | int | float | bool],
     data_payload: dict[str, str | int | float | bool],
     artifacts_payload: dict[str, object],
+    run_dir: Path,
 ) -> tuple[Path, Path, Path]:
     """Persist run manifest for reproducibility and run-to-run comparison.
 
@@ -98,7 +100,7 @@ def _write_run_manifest(
         {"comparison_key": comparison_key, "run_started_utc": run_started_utc}
     )
 
-    target_manifest_dir = _target_artifact_dir(target, "manifests")
+    target_manifest_dir = _target_artifact_dir(target, "manifests", outputs_root=run_dir)
     target_manifest_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = (
         target_manifest_dir / f"{_safe_target_name(target)}__manifest_{manifest_run_key}.json"
@@ -152,8 +154,51 @@ def _write_run_manifest(
         "manifest_path": str(manifest_path),
     }
 
-    global_index_path = Path("outputs/manifests/run_manifest_index.csv")
+    run_index_path = run_dir / "run_manifest_index.csv"
     target_index_path = target_manifest_dir / "run_manifest_index.csv"
-    _write_manifest_index_row(global_index_path, index_row)
+    _write_manifest_index_row(run_index_path, index_row)
     _write_manifest_index_row(target_index_path, index_row)
-    return manifest_path, global_index_path, target_index_path
+    return manifest_path, run_index_path, target_index_path
+
+
+_README_LOGGER = logging.getLogger(__name__)
+
+
+def write_run_readme(
+    run_dir: Path, config, preset_meta,
+    *, targets: list[str],
+    started_utc: str, finished_utc: str, runtime_seconds: float,
+    success_count: int, failure_count: int,
+    errors: dict[str, str] | None = None,
+) -> Path:
+    """Write a human-readable README.md describing this run."""
+    try:
+        preset_label = (
+            f"`{preset_meta.name}` (version={preset_meta.version}, hash=`{preset_meta.hash}`)"
+            if preset_meta.is_set
+            else "custom (no preset)"
+        )
+        lines = [
+            f"# Run: {run_dir.name}",
+            "",
+            f"- **Started (UTC):** {started_utc}",
+            f"- **Finished (UTC):** {finished_utc}",
+            f"- **Runtime:** {runtime_seconds:.1f}s",
+            f"- **Preset:** {preset_label}",
+            f"- **Targets:** {len(targets)} "
+            f"({success_count} succeeded, {failure_count} failed)",
+            "",
+            "## Targets",
+            "",
+        ]
+        for t in targets:
+            err = (errors or {}).get(t)
+            status = f"❌ {err}" if err else "✓"
+            lines.append(f"- `{t}` — {status}")
+        lines.append("")
+        readme_path = run_dir / "README.md"
+        readme_path.write_text("\n".join(lines), encoding="utf-8")
+        return readme_path
+    except Exception as exc:
+        _README_LOGGER.warning("Failed to write run README: %s", exc)
+        return run_dir / "README.md"

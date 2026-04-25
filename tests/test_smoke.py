@@ -104,7 +104,7 @@ class _FakeLightCurve:
         return self
 
 
-def test_fetch_and_plot_uses_cache(monkeypatch, tmp_path):
+def test_fetch_and_plot_uses_cache(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     cache_file = _cache_path(target, cache_dir)
@@ -117,19 +117,19 @@ def test_fetch_and_plot_uses_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
-    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
+    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
     assert output_path is not None
     assert output_path.exists()
-    assert (tmp_path / "outputs/metrics/preprocessing_summary.csv").exists()
-    assert (tmp_path / "outputs/tic_261136679/metrics/preprocessing_summary.json").exists()
-    manifest_dir = tmp_path / "outputs/tic_261136679/manifests"
+    assert (test_run_dir / "preprocessing_summary.csv").exists()
+    assert (test_run_dir / "tic_261136679/metrics/preprocessing_summary.json").exists()
+    manifest_dir = test_run_dir / "tic_261136679/manifests"
     assert manifest_dir.exists()
     assert len(list(manifest_dir.glob("*.json"))) == 1
-    assert (tmp_path / "outputs/manifests/run_manifest_index.csv").exists()
+    assert (test_run_dir / "run_manifest_index.csv").exists()
     assert (manifest_dir / "run_manifest_index.csv").exists()
 
 
-def test_fetch_and_plot_uses_prepared_cache(monkeypatch, tmp_path):
+def test_fetch_and_plot_uses_prepared_cache(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     prepared_cache = _prepared_cache_path(
@@ -152,14 +152,14 @@ def test_fetch_and_plot_uses_prepared_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
-    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
+    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
     assert output_path is not None
     assert output_path.exists()
-    assert (tmp_path / "outputs/metrics/preprocessing_summary.csv").exists()
-    assert (tmp_path / "outputs/tic_261136679/metrics/preprocessing_summary.json").exists()
+    assert (test_run_dir / "preprocessing_summary.csv").exists()
+    assert (test_run_dir / "tic_261136679/metrics/preprocessing_summary.json").exists()
 
 
-def test_fetch_and_plot_downloads_and_caches(monkeypatch, tmp_path):
+def test_fetch_and_plot_downloads_and_caches(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     fake_lc = _FakeLightCurve()
@@ -195,16 +195,16 @@ def test_fetch_and_plot_downloads_and_caches(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _fake_search)
     monkeypatch.chdir(tmp_path)
 
-    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="per-sector"), cache_dir=cache_dir)
+    output_path = fetch_and_plot(target, config=_test_config(preprocess_mode="per-sector"), run_dir=test_run_dir, cache_dir=cache_dir)
     assert output_path is not None
     assert output_path.exists()
     segment_root = cache_dir / "segments" / "tic_261136679"
     assert segment_root.exists()
-    assert (tmp_path / "outputs/metrics/preprocessing_summary.csv").exists()
-    assert (tmp_path / "outputs/tic_261136679/metrics/preprocessing_summary.json").exists()
+    assert (test_run_dir / "preprocessing_summary.csv").exists()
+    assert (test_run_dir / "tic_261136679/metrics/preprocessing_summary.json").exists()
 
 
-def test_fetch_and_plot_runs_bls_per_sector(monkeypatch, tmp_path):
+def test_fetch_and_plot_runs_bls_per_sector(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     lc1 = _FakeLightCurve(sector=14)
@@ -251,12 +251,13 @@ def test_fetch_and_plot_runs_bls_per_sector(monkeypatch, tmp_path):
     fetch_and_plot(
         target,
         config=_test_config(preprocess_mode="per-sector", bls_mode="per-sector"),
+        run_dir=test_run_dir,
         cache_dir=cache_dir,
     )
     assert call_count["n"] == 2
 
 
-def test_fetch_and_plot_generates_per_sector_plots(monkeypatch, tmp_path):
+def test_fetch_and_plot_generates_per_sector_plots(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     lc1 = _FakeLightCurve(sector=14)
@@ -296,12 +297,13 @@ def test_fetch_and_plot_generates_per_sector_plots(monkeypatch, tmp_path):
     output_path = fetch_and_plot(
         target,
         config=_test_config(preprocess_mode="per-sector", plot_mode="per-sector"),
+        run_dir=test_run_dir,
         cache_dir=cache_dir,
     )
     assert output_path is not None
     assert output_path.exists()
     per_sector_plots = sorted(
-        (tmp_path / "outputs/tic_261136679/plots").glob("*sector_*__idx_*.png")
+        (test_run_dir / "tic_261136679/plots").glob("*sector_*__idx_*.png")
     )
     assert len(per_sector_plots) == 2
 
@@ -319,7 +321,7 @@ def test_compute_preprocessing_quality_metrics_improvement():
     assert metrics.retained_cadence_fraction == 1.0
 
 
-def test_fetch_and_plot_reuses_metrics_cache(monkeypatch, tmp_path):
+def test_fetch_and_plot_reuses_metrics_cache(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     prepared_cache = _prepared_cache_path(
@@ -342,7 +344,7 @@ def test_fetch_and_plot_reuses_metrics_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
-    first_output = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
+    first_output = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
     assert first_output is not None
     assert first_output.exists()
 
@@ -350,12 +352,12 @@ def test_fetch_and_plot_reuses_metrics_cache(monkeypatch, tmp_path):
         raise AssertionError("compute_preprocessing_quality_metrics should not run on cache hit")
 
     monkeypatch.setattr(pipeline, "compute_preprocessing_quality_metrics", _should_not_compute)
-    second_output = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
+    second_output = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
     assert second_output is not None
     assert second_output.exists()
 
 
-def test_fetch_and_plot_no_preprocess_skips_prepare_lightcurve(monkeypatch, tmp_path):
+def test_fetch_and_plot_no_preprocess_skips_prepare_lightcurve(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     cache_file = _cache_path(target, cache_dir)
@@ -375,13 +377,14 @@ def test_fetch_and_plot_no_preprocess_skips_prepare_lightcurve(monkeypatch, tmp_
     output_path = fetch_and_plot(
         target,
         config=_test_config(preprocess_mode="stitched", preprocess_enabled=False),
+        run_dir=test_run_dir,
         cache_dir=cache_dir,
     )
     assert output_path is not None
     assert output_path.exists()
 
 
-def test_fetch_and_plot_manifest_comparison_key_stable_for_same_settings(monkeypatch, tmp_path):
+def test_fetch_and_plot_manifest_comparison_key_stable_for_same_settings(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     prepared_cache = _prepared_cache_path(
@@ -404,10 +407,10 @@ def test_fetch_and_plot_manifest_comparison_key_stable_for_same_settings(monkeyp
     monkeypatch.setattr(pipeline.lk, "search_lightcurve", _unexpected_search)
     monkeypatch.chdir(tmp_path)
 
-    fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
-    fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
+    fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
+    fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
 
-    manifest_dir = tmp_path / "outputs/tic_261136679/manifests"
+    manifest_dir = test_run_dir / "tic_261136679/manifests"
     manifest_files = sorted(manifest_dir.glob("*.json"))
     assert len(manifest_files) == 2
     first = json.loads(manifest_files[0].read_text(encoding="utf-8"))
@@ -419,14 +422,14 @@ def test_fetch_and_plot_manifest_comparison_key_stable_for_same_settings(monkeyp
         == second["comparison"]["data_fingerprint_hash"]
     )
 
-    global_index_path = tmp_path / "outputs/manifests/run_manifest_index.csv"
+    global_index_path = test_run_dir / "run_manifest_index.csv"
     with global_index_path.open("r", encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert len(rows) == 2
     assert rows[0]["comparison_key"] == rows[1]["comparison_key"]
 
 
-def test_fetch_and_plot_manifest_includes_preset_metadata(monkeypatch, tmp_path):
+def test_fetch_and_plot_manifest_includes_preset_metadata(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     prepared_cache = _prepared_cache_path(
@@ -453,11 +456,12 @@ def test_fetch_and_plot_manifest_includes_preset_metadata(monkeypatch, tmp_path)
     fetch_and_plot(
         target,
         config=_test_config(preprocess_mode="stitched"),
+        run_dir=test_run_dir,
         preset_meta=PresetMeta(name="science-default", version=1, hash="abc123def4567890"),
         cache_dir=cache_dir,
     )
 
-    manifest_dir = tmp_path / "outputs/tic_261136679/manifests"
+    manifest_dir = test_run_dir / "tic_261136679/manifests"
     manifest_files = sorted(manifest_dir.glob("*.json"))
     assert len(manifest_files) == 1
     payload = json.loads(manifest_files[0].read_text(encoding="utf-8"))
@@ -468,12 +472,12 @@ def test_fetch_and_plot_manifest_includes_preset_metadata(monkeypatch, tmp_path)
     assert config["config_preset_hash"] == "abc123def4567890"
 
 
-def test_run_batch_analysis_resumable_and_failure_isolated(monkeypatch, tmp_path):
+def test_run_batch_analysis_resumable_and_failure_isolated(monkeypatch, tmp_path, test_run_dir):
     monkeypatch.chdir(tmp_path)
 
     calls: list[str] = []
 
-    def _fake_fetch_and_plot(target, config, preset_meta=None, **kwargs):
+    def _fake_fetch_and_plot(target, config, run_dir, preset_meta=None, **kwargs):
         calls.append(target)
         if target == "TIC 2":
             raise RuntimeError("simulated failure")
@@ -481,19 +485,17 @@ def test_run_batch_analysis_resumable_and_failure_isolated(monkeypatch, tmp_path
 
     monkeypatch.setattr(pipeline, "fetch_and_plot", _fake_fetch_and_plot)
 
-    state_path = tmp_path / "outputs/batch/state.json"
-    status_path = tmp_path / "outputs/batch/status.csv"
     targets = ["TIC 1", "TIC 2", "TIC 3"]
 
     run_batch_analysis(
         targets=targets,
         config=_test_config(),
+        run_dir=test_run_dir,
         cache_dir=tmp_path / "cache",
-        resume=False,
-        state_path=state_path,
-        status_path=status_path,
     )
     assert calls == ["TIC 1", "TIC 2", "TIC 3"]
+    state_path = test_run_dir / "run_state.json"
+    status_path = test_run_dir / "run_status.csv"
     assert state_path.exists()
     with state_path.open("r", encoding="utf-8") as handle:
         state_payload = json.load(handle)
@@ -511,10 +513,8 @@ def test_run_batch_analysis_resumable_and_failure_isolated(monkeypatch, tmp_path
     run_batch_analysis(
         targets=targets,
         config=_test_config(),
+        run_dir=test_run_dir,
         cache_dir=tmp_path / "cache",
-        resume=True,
-        state_path=state_path,
-        status_path=status_path,
     )
     assert calls == ["TIC 2"]
     with status_path.open("r", encoding="utf-8", newline="") as handle:
@@ -525,7 +525,7 @@ def test_run_batch_analysis_resumable_and_failure_isolated(monkeypatch, tmp_path
     assert resumed_rows[2]["status"] == "skipped_completed"
 
 
-def test_fetch_and_plot_generates_stitched_plot_by_default(monkeypatch, tmp_path):
+def test_fetch_and_plot_generates_stitched_plot_by_default(monkeypatch, tmp_path, test_run_dir):
     target = "TIC 261136679"
     cache_dir = tmp_path / "cache"
     cache_file = _cache_path(target, cache_dir)
@@ -541,15 +541,16 @@ def test_fetch_and_plot_generates_stitched_plot_by_default(monkeypatch, tmp_path
     output_path = fetch_and_plot(
         target,
         config=_test_config(preprocess_mode="stitched"),
+        run_dir=test_run_dir,
         cache_dir=cache_dir,
     )
     assert output_path is not None
     assert output_path.exists()
-    assert output_path.parent == Path("outputs/tic_261136679/plots")
+    assert output_path.parent == test_run_dir / "tic_261136679" / "plots"
     assert output_path.name.endswith("_prepared_stitched.png")
 
 
-def test_preprocessing_summary_csv_column_order_stable(monkeypatch, tmp_path):
+def test_preprocessing_summary_csv_column_order_stable(monkeypatch, tmp_path, test_run_dir):
     monkeypatch.chdir(tmp_path)
     metrics_ordered = {
         "n_points_raw": 10,
@@ -576,6 +577,7 @@ def test_preprocessing_summary_csv_column_order_stable(monkeypatch, tmp_path):
         no_flatten=False,
         data_source="raw-cache",
         metrics=metrics_ordered,
+        run_dir=test_run_dir,
     )
     pipeline._write_preprocessing_metrics(
         target="TIC 1",
@@ -586,15 +588,16 @@ def test_preprocessing_summary_csv_column_order_stable(monkeypatch, tmp_path):
         no_flatten=False,
         data_source="raw-cache",
         metrics=metrics_reversed,
+        run_dir=test_run_dir,
     )
 
-    csv_path = tmp_path / "outputs/metrics/preprocessing_summary.csv"
+    csv_path = test_run_dir / "preprocessing_summary.csv"
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         rows = list(reader)
         assert reader.fieldnames == metrics_io._PREPROCESSING_SUMMARY_COLUMNS
 
-    target_csv_path = tmp_path / "outputs/tic_1/metrics/preprocessing_summary.csv"
+    target_csv_path = test_run_dir / "tic_1/metrics/preprocessing_summary.csv"
     with target_csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         target_rows = list(reader)
@@ -816,7 +819,7 @@ def test_estimate_candidate_parameters_returns_radius_ratio_and_duration_check()
     assert "Preliminary estimate only" in estimate.parameter_uncertainty_caveats
 
 
-def test_save_candidate_diagnostics_writes_assets(monkeypatch, tmp_path):
+def test_save_candidate_diagnostics_writes_assets(monkeypatch, tmp_path, test_run_dir):
     monkeypatch.chdir(tmp_path)
     lc = _BLSLC(
         time=np.linspace(0.0, 10.0, 1000),
@@ -842,16 +845,17 @@ def test_save_candidate_diagnostics_writes_assets(monkeypatch, tmp_path):
         candidates=candidates,
         period_grid_days=np.linspace(0.5, 5.0, 300),
         power_grid=np.linspace(0.0, 0.01, 300),
+        run_dir=test_run_dir,
     )
     assert len(written) == 1
     periodogram_path, phasefold_path = written[0]
     assert periodogram_path.exists()
     assert phasefold_path.exists()
-    assert periodogram_path.parent == _target_output_dir("TIC 1") / "diagnostics"
-    assert phasefold_path.parent == _target_output_dir("TIC 1") / "diagnostics"
+    assert periodogram_path.parent == _target_output_dir("TIC 1", outputs_root=test_run_dir) / "diagnostics"
+    assert phasefold_path.parent == _target_output_dir("TIC 1", outputs_root=test_run_dir) / "diagnostics"
 
 
-def test_write_bls_candidates_outputs_structured_files(monkeypatch, tmp_path):
+def test_write_bls_candidates_outputs_structured_files(monkeypatch, tmp_path, test_run_dir):
     monkeypatch.chdir(tmp_path)
     candidates = [
         BLSCandidate(
@@ -899,13 +903,14 @@ def test_write_bls_candidates_outputs_structured_files(monkeypatch, tmp_path):
         output_key="abc123",
         metadata=metadata,
         candidates=candidates,
+        run_dir=test_run_dir,
         parameter_estimates_by_rank=estimate_candidate_parameters(candidates),
     )
 
     assert csv_path.exists()
     assert json_path.exists()
-    assert csv_path.parent == _target_output_dir("TIC 1") / "candidates"
-    assert json_path.parent == _target_output_dir("TIC 1") / "candidates"
+    assert csv_path.parent == _target_output_dir("TIC 1", outputs_root=test_run_dir) / "candidates"
+    assert json_path.parent == _target_output_dir("TIC 1", outputs_root=test_run_dir) / "candidates"
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         rows = list(reader)

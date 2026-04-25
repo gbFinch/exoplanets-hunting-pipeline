@@ -102,8 +102,10 @@ def _write_bls_candidates(
     candidates: list[BLSCandidate],
     vetting_by_rank: dict[int, CandidateVettingResult] | None = None,
     parameter_estimates_by_rank: dict[int, CandidateParameterEstimate] | None = None,
+    *,
+    run_dir: Path,
 ) -> tuple[Path, Path]:
-    output_dir = _target_artifact_dir(target, "candidates")
+    output_dir = _target_artifact_dir(target, "candidates", outputs_root=run_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     base_name = f"{_safe_target_name(target)}__bls_{output_key}"
     csv_path = output_dir / f"{base_name}.csv"
@@ -172,8 +174,6 @@ def _write_bls_candidates(
     return csv_path, json_path
 
 
-_LIVE_CSV = Path("outputs/batch/candidates_live.csv")
-_NOVEL_CSV = Path("outputs/batch/candidates_novel.csv")
 _LIVE_COLS = "target,rank,period_days,depth_ppm,snr,duration_hours,transit_time,iteration,vetting_reasons,vetting_pass"
 
 
@@ -189,9 +189,12 @@ def _row_values(target, c, vr):
 
 def _append_live_candidates(
     target: str, candidates: list, vetting: dict, known_ephemerides: list,
+    *, run_dir: Path,
 ) -> None:
     """Append candidates to live summary CSV; novel-only to a second CSV."""
-    for csv_path in (_LIVE_CSV, _NOVEL_CSV):
+    live_csv = run_dir / "candidates_live.csv"
+    novel_csv = run_dir / "candidates_novel.csv"
+    for csv_path in (live_csv, novel_csv):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         if not csv_path.exists():
             try:
@@ -207,7 +210,7 @@ def _append_live_candidates(
             continue
         values = _row_values(target, c, vr)
         try:
-            with open(_LIVE_CSV, "a", encoding="utf-8", newline="") as f:
+            with open(live_csv, "a", encoding="utf-8", newline="") as f:
                 csv.writer(f).writerow(values)
         except OSError as exc:
             LOGGER.warning("Failed to append to live candidates CSV: %s", exc)
@@ -224,7 +227,7 @@ def _append_live_candidates(
                 break
         if not is_known:
             try:
-                with open(_NOVEL_CSV, "a", encoding="utf-8", newline="") as f:
+                with open(novel_csv, "a", encoding="utf-8", newline="") as f:
                     csv.writer(f).writerow(values)
             except OSError as exc:
                 LOGGER.warning("Failed to append to novel candidates CSV: %s", exc)

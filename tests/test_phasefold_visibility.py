@@ -113,13 +113,14 @@ class TestPhaseFoldDiagnostics:
             target="TIC 317597583", output_key="pfvtest",
             lc_prepared=lc, candidates=[cand],
             period_grid_days=periods, power_grid=power,
+            run_dir=tmp_path / "run",
         )
         # If sharey were still on, the zoom would be forced to the noisy
         # full-panel scale (±800+ ppm) and couldn't tighten around 136 ppm.
         # Build the figure directly to inspect ylims without re-saving.
         # (Reproduces the internal fig construction.)
         # The easier check: the file exists and has non-trivial size.
-        out = tmp_path / "outputs" / "tic_317597583" / "diagnostics"
+        out = tmp_path / "run" / "tic_317597583" / "diagnostics"
         pngs = list(out.glob("*phasefold.png"))
         assert len(pngs) == 1
         assert pngs[0].stat().st_size > 10_000  # rendered content present
@@ -153,6 +154,7 @@ class TestPhaseFoldDiagnostics:
             target="TIC 999888777", output_key="shallow",
             lc_prepared=lc, candidates=[cand],
             period_grid_days=periods, power_grid=power,
+            run_dir=tmp_path / "run",
         )
         assert len(result) == 1
         _, phasefold_path = result[0]

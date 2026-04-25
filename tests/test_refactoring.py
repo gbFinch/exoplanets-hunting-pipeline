@@ -142,7 +142,7 @@ class TestBLSPeriodogramBehavior:
 class TestFetchAndPlotBehavior:
     """Characterize fetch_and_plot() observable behavior before decomposition."""
 
-    def test_returns_path_on_cache_hit(self, monkeypatch, tmp_path):
+    def test_returns_path_on_cache_hit(self, monkeypatch, tmp_path, test_run_dir):
         # Characterizes behavior for: Steps 4-6 (pipeline decomposition)
         # Protects: fetch_and_plot() return type and output file creation
         from exohunt import pipeline
@@ -161,10 +161,10 @@ class TestFetchAndPlotBehavior:
         monkeypatch.setattr(pipeline.lk, "search_lightcurve", _no_search)
         monkeypatch.chdir(tmp_path)
 
-        result = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
+        result = fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
         assert result is None or isinstance(result, type(tmp_path))
 
-    def test_produces_metrics_files(self, monkeypatch, tmp_path):
+    def test_produces_metrics_files(self, monkeypatch, tmp_path, test_run_dir):
         # Characterizes behavior for: Steps 4-6 (pipeline decomposition)
         # Protects: metrics CSV and JSON output
         from exohunt import pipeline
@@ -181,11 +181,11 @@ class TestFetchAndPlotBehavior:
                             lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no search")))
         monkeypatch.chdir(tmp_path)
 
-        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
-        assert (tmp_path / "outputs/metrics/preprocessing_summary.csv").exists()
-        assert (tmp_path / "outputs/tic_888888888/metrics/preprocessing_summary.json").exists()
+        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
+        assert (test_run_dir / "preprocessing_summary.csv").exists()
+        assert (test_run_dir / "tic_888888888/metrics/preprocessing_summary.json").exists()
 
-    def test_produces_manifest_files(self, monkeypatch, tmp_path):
+    def test_produces_manifest_files(self, monkeypatch, tmp_path, test_run_dir):
         # Characterizes behavior for: Steps 4-6 (pipeline decomposition)
         # Protects: manifest JSON and index CSV output
         from exohunt import pipeline
@@ -202,13 +202,13 @@ class TestFetchAndPlotBehavior:
                             lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no search")))
         monkeypatch.chdir(tmp_path)
 
-        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), cache_dir=cache_dir)
-        manifest_dir = tmp_path / "outputs/tic_777777777/manifests"
+        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched"), run_dir=test_run_dir, cache_dir=cache_dir)
+        manifest_dir = test_run_dir / "tic_777777777/manifests"
         assert manifest_dir.exists()
         assert len(list(manifest_dir.glob("*__manifest_*.json"))) == 1
-        assert (tmp_path / "outputs/manifests/run_manifest_index.csv").exists()
+        assert (test_run_dir / "run_manifest_index.csv").exists()
 
-    def test_produces_candidate_files_when_bls_enabled(self, monkeypatch, tmp_path):
+    def test_produces_candidate_files_when_bls_enabled(self, monkeypatch, tmp_path, test_run_dir):
         # Characterizes behavior for: Steps 4-6 (pipeline decomposition)
         # Protects: candidate CSV/JSON output
         from exohunt import pipeline
@@ -229,8 +229,8 @@ class TestFetchAndPlotBehavior:
                             lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no search")))
         monkeypatch.chdir(tmp_path)
 
-        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched", run_bls=True), cache_dir=cache_dir)
-        candidates_dir = tmp_path / "outputs/tic_666666666/candidates"
+        fetch_and_plot(target, config=_test_config(preprocess_mode="stitched", run_bls=True), run_dir=test_run_dir, cache_dir=cache_dir)
+        candidates_dir = test_run_dir / "tic_666666666/candidates"
         assert candidates_dir.exists()
         csv_files = list(candidates_dir.glob("*.csv"))
         json_files = list(candidates_dir.glob("*.json"))

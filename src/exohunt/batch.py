@@ -9,12 +9,12 @@ from pathlib import Path
 from time import perf_counter
 
 from exohunt import pipeline as _pipeline_mod
+from exohunt.cache import DEFAULT_CACHE_DIR
 from exohunt.config import PresetMeta, RuntimeConfig
+from exohunt.manifest import write_run_readme
 from exohunt.progress import _render_progress
 
 LOGGER = logging.getLogger(__name__)
-
-_DEFAULT_CACHE_DIR = Path("outputs/cache/lightcurves")
 
 _BATCH_STATUS_COLUMNS = [
     "run_utc",
@@ -34,18 +34,6 @@ class BatchTargetStatus:
     error: str
     runtime_seconds: float
     output_path: str
-
-
-def _default_batch_state_path(targets_file: Path | None = None) -> Path:
-    if targets_file is None:
-        return Path("outputs/batch/run_state.json")
-    return Path("outputs/batch") / f"{targets_file.stem}__state.json"
-
-
-def _default_batch_status_path(targets_file: Path | None = None) -> Path:
-    if targets_file is None:
-        return Path("outputs/batch/run_status.csv")
-    return Path("outputs/batch") / f"{targets_file.stem}__status.csv"
 
 
 def _load_batch_state(state_path: Path) -> dict[str, object]:
@@ -96,14 +84,12 @@ def _write_batch_status_report(
 def run_batch_analysis(
     targets: list[str],
     config: RuntimeConfig,
+    run_dir: Path,
     preset_meta: PresetMeta | None = None,
     *,
-    resume: bool = False,
     no_cache: bool = False,
     cache_dir: Path | None = None,
     max_download_files: int | None = None,
-    state_path: Path | None = None,
-    status_path: Path | None = None,
 ) -> tuple[Path, Path, Path]:
     """Run analysis for many targets with failure isolation and resumable state.
 
@@ -112,7 +98,7 @@ def run_batch_analysis(
     while a status report captures deterministic run outcomes for auditing.
     """
     unique_targets = [item.strip() for item in targets if item.strip()]
-    cache_dir = cache_dir or _DEFAULT_CACHE_DIR
+    cache_dir = cache_dir or DEFAULT_CACHE_DIR
     deduped_targets: list[str] = []
     seen: set[str] = set()
     for target in unique_targets:
@@ -121,8 +107,9 @@ def run_batch_analysis(
         deduped_targets.append(target)
         seen.add(target)
 
-    state_path = state_path or _default_batch_state_path()
-    status_path = status_path or _default_batch_status_path()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    state_path = run_dir / "run_state.json"
+    status_path = run_dir / "run_status.csv"
     state_payload = _load_batch_state(state_path)
     completed = set(str(item) for item in state_payload.get("completed_targets", []))
     failed = set(str(item) for item in state_payload.get("failed_targets", []))
@@ -130,9 +117,10 @@ def run_batch_analysis(
 
     statuses: list[BatchTargetStatus] = []
     run_utc = datetime.now(tz=timezone.utc).isoformat()
+    _batch_start = perf_counter()
     total = len(deduped_targets)
     for idx, target in enumerate(deduped_targets, start=1):
-        if resume and target in completed:
+        if target in completed:
             statuses.append(
                 BatchTargetStatus(
                     run_utc=run_utc,
@@ -154,6 +142,7 @@ def run_batch_analysis(
                     output_path = _pipeline_mod.fetch_and_plot(
                         target=target,
                         config=config,
+                        run_dir=run_dir,
                         preset_meta=preset_meta,
                         cache_dir=cache_dir,
                         no_cache=no_cache,
@@ -211,4 +200,19 @@ def run_batch_analysis(
     LOGGER.info("Batch state: %s", state_path)
     LOGGER.info("Batch status CSV: %s", status_csv)
     LOGGER.info("Batch status JSON: %s", status_json)
+
+    finished_utc = datetime.now(tz=timezone.utc).isoformat()
+    total_runtime = perf_counter() - _batch_start
+    try:
+        write_run_readme(
+            run_dir, config, preset_meta,
+            targets=deduped_targets,
+            started_utc=run_utc, finished_utc=finished_utc,
+            runtime_seconds=total_runtime,
+            success_count=len(completed), failure_count=len(failed),
+            errors=errors,
+        )
+    except Exception as exc:
+        LOGGER.warning("Failed to write run README: %s", exc)
+
     return state_path, status_csv, status_json

@@ -18,6 +18,7 @@ from exohunt.bls import (
     run_iterative_bls_search,
 )
 from exohunt.cache import (
+    DEFAULT_CACHE_DIR,
     _cache_path,
     _load_npz_lightcurve,
     _load_segment_manifest,
@@ -63,8 +64,6 @@ from exohunt.vetting import (
 
 
 LOGGER = logging.getLogger(__name__)
-
-_DEFAULT_CACHE_DIR = Path("outputs/cache/lightcurves")
 
 
 
@@ -374,6 +373,7 @@ def _search_and_output_stage(
     time_max: float,
     authors: str | None,
     tpf: object | None = None,
+    run_dir: Path,
 ) -> SearchResult:
     """Run BLS search, vetting, parameter estimation, and write candidates."""
     preprocess_mode = config.preprocess.mode
@@ -535,6 +535,7 @@ def _search_and_output_stage(
                     output_key=f"{segment.segment_id}_{segment_key}",
                     metadata=segment_metadata,
                     candidates=segment_candidates,
+                    run_dir=run_dir,
                     vetting_by_rank=vet_bls_candidates(
                         lc_prepared=segment.lc,
                         candidates=segment_candidates,
@@ -578,6 +579,7 @@ def _search_and_output_stage(
                             period_grid_days=period_grid_days,
                             power_grid=period_power,
                             stellar_params=stellar_params,
+                            run_dir=run_dir,
                         )
                     )
 
@@ -768,6 +770,7 @@ def _search_and_output_stage(
             output_key=candidate_output_key,
             metadata=candidate_metadata,
             candidates=bls_candidates,
+            run_dir=run_dir,
             vetting_by_rank=stitched_vetting_by_rank,
             parameter_estimates_by_rank=estimate_candidate_parameters(
                 candidates=bls_candidates,
@@ -796,6 +799,7 @@ def _search_and_output_stage(
                     output_key=f"iter_{iter_n}_{candidate_output_key}",
                     metadata=iter_metadata,
                     candidates=iter_cands,
+                    run_dir=run_dir,
                     vetting_by_rank=stitched_vetting_by_rank,
                     parameter_estimates_by_rank=estimate_candidate_parameters(
                         candidates=iter_cands,
@@ -835,6 +839,7 @@ def _search_and_output_stage(
                 period_grid_days=period_grid_days,
                 power_grid=period_power,
                 stellar_params=stellar_params,
+                run_dir=run_dir,
             )
             LOGGER.info(
                 "Candidate diagnostics complete in %.2fs (%d candidate asset set%s)",
@@ -890,13 +895,14 @@ def _search_and_output_stage(
                     "validated": vr.validated, "status": vr.status,
                 }
             if validation_results:
-                val_path = _target_artifact_dir(target, "candidates") / f"{_safe_target_name(target)}__validation.json"
+                val_path = _target_artifact_dir(target, "candidates", outputs_root=run_dir) / f"{_safe_target_name(target)}__validation.json"
+                val_path.parent.mkdir(parents=True, exist_ok=True)
                 val_path.write_text(json.dumps(validation_results, indent=2), encoding="utf-8")
                 LOGGER.info("TRICERATOPS results written to %s", val_path)
 
     # Append passing candidates to live summary CSVs
     if bls_candidates and stitched_vetting_by_rank:
-        _append_live_candidates(target, bls_candidates, stitched_vetting_by_rank, known)
+        _append_live_candidates(target, bls_candidates, stitched_vetting_by_rank, known, run_dir=run_dir)
 
     return SearchResult(
         bls_candidates=bls_candidates,
@@ -918,6 +924,7 @@ def _plotting_stage(
     boundaries: list[float],
     raw_segments_for_plot: list[LightCurveSegment],
     prepared_segments_for_plot: list[LightCurveSegment],
+    run_dir: Path,
 ) -> PlotResult:
     """Generate static and interactive plots."""
     plot_enabled = config.plot.enabled
@@ -940,6 +947,7 @@ def _plotting_stage(
                     boundaries=boundaries,
                     output_key="stitched",
                     smoothing_window=smoothing_window,
+                    run_dir=run_dir,
                 )
             )
             if interactive_html:
@@ -951,6 +959,7 @@ def _plotting_stage(
                         boundaries=boundaries,
                         max_points=interactive_max_points,
                         output_key="stitched",
+                        run_dir=run_dir,
                     )
                 )
         elif plot_mode == "per-sector":
@@ -978,6 +987,7 @@ def _plotting_stage(
                         boundaries=[],
                         output_key=raw_segment.segment_id,
                         smoothing_window=smoothing_window,
+                        run_dir=run_dir,
                     )
                 )
                 if interactive_html:
@@ -989,6 +999,7 @@ def _plotting_stage(
                             boundaries=[],
                             max_points=interactive_max_points,
                             output_key=raw_segment.segment_id,
+                            run_dir=run_dir,
                         )
                     )
         else:
@@ -1028,6 +1039,7 @@ def _manifest_stage(
     metrics_payload: dict,
     search_result: SearchResult,
     plot_result: PlotResult,
+    run_dir: Path,
 ) -> None:
     """Write run manifest and log summary."""
     refresh_cache = config.io.refresh_cache
@@ -1128,6 +1140,7 @@ def _manifest_stage(
         config_payload=config_payload,
         data_payload=data_payload,
         artifacts_payload=artifacts_payload,
+        run_dir=run_dir,
     )
 
     LOGGER.info("--------------------------------")
@@ -1217,7 +1230,7 @@ def _manifest_stage(
             config_preset_version,
             config_preset_hash,
         )
-    LOGGER.info("Saved run manifest index CSV (global): %s", manifest_global_index_path)
+    LOGGER.info("Saved run manifest index CSV (run): %s", manifest_global_index_path)
     LOGGER.info("Saved run manifest index CSV (target): %s", manifest_target_index_path)
     LOGGER.info("Saved BLS candidate CSV files: %d", len(candidate_csv_paths))
     for path in candidate_csv_paths:
@@ -1237,6 +1250,7 @@ def _manifest_stage(
 def fetch_and_plot(
     target: str,
     config: RuntimeConfig,
+    run_dir: Path,
     preset_meta: PresetMeta | None = None,
     *,
     cache_dir: Path | None = None,
@@ -1252,7 +1266,8 @@ def fetch_and_plot(
     """
     preset_meta = preset_meta or PresetMeta()
     started_at = perf_counter()
-    cache_dir = cache_dir or _DEFAULT_CACHE_DIR
+    cache_dir = cache_dir or DEFAULT_CACHE_DIR
+    run_dir.mkdir(parents=True, exist_ok=True)
     run_started_dt = datetime.now(tz=timezone.utc)
     run_started_utc = run_started_dt.isoformat()
     preprocess_mode = config.preprocess.mode
@@ -1309,6 +1324,7 @@ def fetch_and_plot(
         no_flatten=no_flatten,
         data_source=ingest.data_source,
         metrics=metrics_payload,
+        run_dir=run_dir,
     )
 
     # Stage 3: Search + Output
@@ -1320,6 +1336,7 @@ def fetch_and_plot(
         n_points_prepared=n_points_prepared, time_min=time_min, time_max=time_max,
         authors=authors,
         tpf=ingest.tpf,
+        run_dir=run_dir,
     )
 
     # Stage 4: Plotting
@@ -1328,6 +1345,7 @@ def fetch_and_plot(
         boundaries=ingest.boundaries,
         raw_segments_for_plot=ingest.raw_segments_for_plot,
         prepared_segments_for_plot=ingest.prepared_segments_for_plot,
+        run_dir=run_dir,
     )
 
     # Stage 5: Manifest + Logging
@@ -1343,6 +1361,7 @@ def fetch_and_plot(
         metrics_cache_path=metrics_cache_path,
         metrics_cache_hit=metrics_cache_hit, metrics_payload=metrics_payload,
         search_result=search, plot_result=plots,
+        run_dir=run_dir,
     )
 
     return plots.output_paths[0] if plots.output_paths else None

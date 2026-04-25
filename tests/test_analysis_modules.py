@@ -90,7 +90,7 @@ def test_run_bls_search_ranks_by_power_and_filters_duplicate_periods(monkeypatch
 
 
 def test_fetch_and_plot_with_fixed_fixture_emits_reproducible_candidate_payload(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, test_run_dir
 ):
     target = "TIC FIXED 1"
     cache_dir = tmp_path / "cache"
@@ -153,12 +153,13 @@ def test_fetch_and_plot_with_fixed_fixture_emits_reproducible_candidate_payload(
     output = pipeline.fetch_and_plot(
         target=target,
         config=_test_config(preprocess_mode="stitched", run_bls=True, plot_mode="stitched"),
+        run_dir=test_run_dir,
         cache_dir=cache_dir,
     )
     assert output is not None
     assert output.exists()
 
-    candidate_jsons = sorted((tmp_path / "outputs/tic_fixed_1/candidates").glob("*.json"))
+    candidate_jsons = sorted((test_run_dir / "tic_fixed_1/candidates").glob("*.json"))
     assert len(candidate_jsons) == 1
     payload = json.loads(candidate_jsons[0].read_text(encoding="utf-8"))
 

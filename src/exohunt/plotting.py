@@ -137,9 +137,11 @@ def save_raw_vs_prepared_plot(
     boundaries: list[float],
     output_key: str = "stitched",
     smoothing_window: int = 5,
+    *,
+    run_dir: Path,
 ) -> Path:
     # Fix: Change 14 — Redesign raw-vs-prepared plot (PL1)
-    output_dir = _target_artifact_dir(target, "plots")
+    output_dir = _target_artifact_dir(target, "plots", outputs_root=run_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = (
         output_dir / f"{_safe_target_name(target)}_prepared_{_safe_plot_key(output_key)}.png"
@@ -242,6 +244,8 @@ def save_raw_vs_prepared_plot_interactive(
     boundaries: list[float],
     max_points: int = 200_000,
     output_key: str = "stitched",
+    *,
+    run_dir: Path,
 ) -> Path:
     try:
         import plotly.graph_objects as go
@@ -251,7 +255,7 @@ def save_raw_vs_prepared_plot_interactive(
             "Interactive plotting requires plotly. Install it to use --interactive-html."
         ) from exc
 
-    output_dir = _target_artifact_dir(target, "plots")
+    output_dir = _target_artifact_dir(target, "plots", outputs_root=run_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = (
         output_dir / f"{_safe_target_name(target)}_prepared_{_safe_plot_key(output_key)}.html"
@@ -491,8 +495,9 @@ def save_candidate_diagnostics(
     vetting_results: dict[int, Any] | None = None,
     parameter_estimates: dict[int, Any] | None = None,
     stellar_params: Any | None = None,
+    run_dir: Path,
 ) -> list[tuple[Path, Path]]:
-    output_dir = _target_artifact_dir(target, "diagnostics")
+    output_dir = _target_artifact_dir(target, "diagnostics", outputs_root=run_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     time = np.asarray(lc_prepared.time.value, dtype=float)
     flux = np.asarray(lc_prepared.flux.value, dtype=float)

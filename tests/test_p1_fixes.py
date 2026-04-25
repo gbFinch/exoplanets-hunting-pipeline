@@ -352,11 +352,14 @@ class TestR12Diagnostics:
             depth_consistency_fraction=0.0, alias_harmonic_with_rank=-1,
             vetting_reasons="pass", odd_even_status="pass",
         )
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
         result = save_candidate_diagnostics(
             target="TIC 999999999", output_key="test",
             lc_prepared=lc, candidates=[candidate],
             period_grid_days=periods, power_grid=power,
             vetting_results={1: vetting_result},
+            run_dir=run_dir,
         )
         assert len(result) == 1
         for periodogram_path, phasefold_path in result:
@@ -370,10 +373,13 @@ class TestR12Diagnostics:
         candidate = _make_candidate(period_days=5.0, duration_hours=2.4, transit_time=0.0)
         periods = np.linspace(1, 20, 200)
         power = np.random.default_rng(42).random(200)
+        run_dir = tmp_path / "run"
+        run_dir.mkdir(exist_ok=True)
         result = save_candidate_diagnostics(
             target="TIC 999999998", output_key="test",
             lc_prepared=lc, candidates=[candidate],
             period_grid_days=periods, power_grid=power,
+            run_dir=run_dir,
         )
         assert len(result) == 1
 
@@ -384,11 +390,14 @@ class TestR12Diagnostics:
         candidate = _make_candidate(period_days=5.0, duration_hours=2.4, transit_time=0.0)
         periods = np.linspace(1, 20, 200)
         power = np.random.default_rng(42).random(200)
+        run_dir = tmp_path / "run"
+        run_dir.mkdir(exist_ok=True)
         result = save_candidate_diagnostics(
             target="TIC 999999997", output_key="test",
             lc_prepared=lc, candidates=[candidate],
             period_grid_days=periods, power_grid=power,
             vetting_results={},
+            run_dir=run_dir,
         )
         assert len(result) == 1
 

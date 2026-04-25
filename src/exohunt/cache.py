@@ -26,13 +26,16 @@ def _safe_target_name(target: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in target).strip("_").lower()
 
 
-def _target_output_dir(target: str, outputs_root: Path | None = None) -> Path:
-    root = outputs_root if outputs_root is not None else Path("outputs")
-    return root / _safe_target_name(target)
+DEFAULT_CACHE_DIR = Path("outputs/cache/lightcurves")
+
+
+def _target_output_dir(target: str, outputs_root: Path) -> Path:
+    """Return <outputs_root>/<safe_target_name>/. outputs_root is required."""
+    return outputs_root / _safe_target_name(target)
 
 
 def _target_artifact_dir(
-    target: str, artifact_name: str, outputs_root: Path | None = None
+    target: str, artifact_name: str, outputs_root: Path
 ) -> Path:
     return _target_output_dir(target=target, outputs_root=outputs_root) / artifact_name
 

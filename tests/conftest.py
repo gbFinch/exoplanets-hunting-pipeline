@@ -55,3 +55,13 @@ def _test_config(**overrides) -> RuntimeConfig:
             tic_density_lookup=False,
         ),
     )
+
+
+import pytest
+
+
+@pytest.fixture
+def test_run_dir(tmp_path):
+    run_dir = tmp_path / "run_under_test"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir

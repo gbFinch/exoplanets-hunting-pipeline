@@ -105,10 +105,12 @@ def _write_preprocessing_metrics(
     no_flatten: bool,
     data_source: str,
     metrics: dict[str, float | int | str],
+    *,
+    run_dir: Path,
 ) -> tuple[Path, Path]:
-    aggregate_output_dir = Path("outputs/metrics")
+    aggregate_output_dir = run_dir
     aggregate_output_dir.mkdir(parents=True, exist_ok=True)
-    target_output_dir = _target_artifact_dir(target, "metrics")
+    target_output_dir = _target_artifact_dir(target, "metrics", outputs_root=run_dir)
     target_output_dir.mkdir(parents=True, exist_ok=True)
     run_utc = datetime.now(tz=timezone.utc).isoformat()
 

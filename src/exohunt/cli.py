@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
@@ -16,10 +18,41 @@ from exohunt.config import (
     write_preset_config,
 )
 from exohunt.batch import run_batch_analysis
+from exohunt.manifest import write_run_readme
 from exohunt.pipeline import fetch_and_plot
 
 
 DEFAULT_TARGET = "TIC 261136679"
+
+_RUNS_ROOT = Path("outputs/runs")
+
+
+def _sanitize_run_name(name: str) -> str:
+    """Sanitize user-provided run name to safe filesystem characters."""
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")
+
+
+def _build_run_id(
+    *, preset_name: str | None, run_name: str | None,
+    now: datetime | None = None,
+) -> str:
+    """Construct run id as YYYY-MM-DDTHH-MM-SS_<preset>[_<name>]."""
+    now = now or datetime.now(tz=timezone.utc)
+    ts = now.strftime("%Y-%m-%dT%H-%M-%S")
+    parts = [ts]
+    parts.append(preset_name or "custom")
+    if run_name:
+        safe = _sanitize_run_name(run_name)
+        if safe:
+            parts.append(safe)
+    return "_".join(parts)
+
+
+def _new_run_dir(preset_name: str | None, run_name: str | None) -> Path:
+    run_id = _build_run_id(preset_name=preset_name, run_name=run_name)
+    run_dir = _RUNS_ROOT / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
 
 
 def _load_batch_targets(path: Path) -> list[str]:
@@ -64,29 +97,53 @@ def _resolve_runtime(
     return runtime_config, preset_meta
 
 
-def _run_single_target(*, target: str, config_ref: str | None) -> None:
+def _run_single_target(*, target: str, config_ref: str | None, run_name: str | None = None) -> None:
     runtime_config, preset_meta = _resolve_runtime(config_ref=config_ref)
-    fetch_and_plot(target, config=runtime_config, preset_meta=preset_meta)
+    run_dir = _new_run_dir(preset_meta.name, run_name)
+    logging.info("Run directory: %s", run_dir)
+    started_utc = datetime.now(tz=timezone.utc)
+    from time import perf_counter as _pc
+    _t0 = _pc()
+    result = fetch_and_plot(target, config=runtime_config, run_dir=run_dir, preset_meta=preset_meta)
+    _elapsed = _pc() - _t0
+    try:
+        write_run_readme(
+            run_dir, runtime_config, preset_meta,
+            targets=[target],
+            started_utc=started_utc.isoformat(),
+            finished_utc=datetime.now(tz=timezone.utc).isoformat(),
+            runtime_seconds=_elapsed,
+            success_count=1 if result else 0,
+            failure_count=0 if result else 1,
+        )
+    except Exception:
+        pass
 
 
 def _run_batch_targets(
     *,
     targets_file: Path,
     config_ref: str | None,
-    resume: bool,
+    run_name: str | None = None,
+    resume_from: Path | None = None,
     no_cache: bool = False,
-    state_path: Path | None,
-    status_path: Path | None,
 ) -> None:
     targets = _load_batch_targets(targets_file)
     if not targets:
         raise RuntimeError(f"No targets found in batch file: {targets_file}")
 
     runtime_config, preset_meta = _resolve_runtime(config_ref=config_ref)
+    if resume_from is not None:
+        if not (resume_from / "run_state.json").exists():
+            raise RuntimeError(f"Cannot resume: {resume_from}/run_state.json not found")
+        run_dir = resume_from
+        logging.info("Resuming run directory: %s", run_dir)
+    else:
+        run_dir = _new_run_dir(preset_meta.name, run_name)
+        logging.info("New run directory: %s", run_dir)
     run_batch_analysis(
-        targets=targets, config=runtime_config, preset_meta=preset_meta,
-        resume=resume, no_cache=no_cache,
-        state_path=state_path, status_path=status_path,
+        targets=targets, config=runtime_config, run_dir=run_dir,
+        preset_meta=preset_meta, no_cache=no_cache,
     )
 
 
@@ -101,6 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="science-default",
         help="Preset name (quicklook/science-default/deep-search) or config TOML path.",
     )
+    run_parser.add_argument("--run-name", default=None, help="Optional name appended to run id.")
 
     batch_parser = subparsers.add_parser("batch", help="Run analysis for many targets")
     batch_parser.add_argument(
@@ -113,25 +171,17 @@ def build_parser() -> argparse.ArgumentParser:
         default="science-default",
         help="Preset name (quicklook/science-default/deep-search) or config TOML path.",
     )
+    batch_parser.add_argument("--run-name", default=None, help="Optional name appended to run id.")
     batch_parser.add_argument(
         "--resume",
-        action="store_true",
-        help="Resume a prior batch run by skipping targets already marked completed in state.",
+        type=Path,
+        default=None,
+        help="Path to an existing run directory to resume.",
     )
     batch_parser.add_argument(
         "--no-cache",
         action="store_true",
         help="Disable writing light curve cache files to save disk space.",
-    )
-    batch_parser.add_argument(
-        "--state-path",
-        default=None,
-        help="Optional path for batch resumable state JSON.",
-    )
-    batch_parser.add_argument(
-        "--status-path",
-        default=None,
-        help="Optional path for batch status CSV (JSON sidecar written next to it).",
     )
 
     init_parser = subparsers.add_parser("init-config", help="Write a starter config from preset")
@@ -157,16 +207,6 @@ def build_legacy_parser() -> argparse.ArgumentParser:
         "--batch-resume",
         action="store_true",
         help="Resume a prior batch run by skipping targets already marked completed in state.",
-    )
-    parser.add_argument(
-        "--batch-state-path",
-        default=None,
-        help="Optional path for batch resumable state JSON.",
-    )
-    parser.add_argument(
-        "--batch-status-path",
-        default=None,
-        help="Optional path for batch status CSV (JSON sidecar written next to it).",
     )
     parser.add_argument(
         "--refresh-cache",
@@ -321,18 +361,18 @@ def _run_legacy(argv: list[str]) -> int:
 
     runtime_config, preset_meta = _resolve_runtime(config_ref=None, cli_overrides=cli_overrides)
 
+    run_dir = _new_run_dir(preset_meta.name if preset_meta.is_set else "legacy", None)
+    logging.info("Run directory: %s", run_dir)
+
     if args.batch_targets_file:
         targets = _load_batch_targets(Path(args.batch_targets_file))
         if not targets:
             raise RuntimeError(f"No targets found in batch file: {args.batch_targets_file}")
         run_batch_analysis(
-            targets=targets, config=runtime_config, preset_meta=preset_meta,
-            resume=args.batch_resume,
-            state_path=Path(args.batch_state_path) if args.batch_state_path else None,
-            status_path=Path(args.batch_status_path) if args.batch_status_path else None,
+            targets=targets, config=runtime_config, run_dir=run_dir, preset_meta=preset_meta,
         )
     else:
-        fetch_and_plot(args.target, config=runtime_config, preset_meta=preset_meta)
+        fetch_and_plot(args.target, config=runtime_config, run_dir=run_dir, preset_meta=preset_meta)
     return 0
 
 
@@ -343,16 +383,19 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] in {"run", "batch", "init-config"}:
         args = build_parser().parse_args(argv)
         if args.command == "run":
-            _run_single_target(target=str(args.target), config_ref=str(args.config))
+            _run_single_target(
+                target=str(args.target),
+                config_ref=str(args.config),
+                run_name=args.run_name,
+            )
             return 0
         if args.command == "batch":
             _run_batch_targets(
                 targets_file=Path(str(args.targets_file)),
                 config_ref=str(args.config),
-                resume=bool(args.resume),
+                run_name=args.run_name,
+                resume_from=args.resume,
                 no_cache=bool(getattr(args, 'no_cache', False)),
-                state_path=Path(str(args.state_path)) if args.state_path else None,
-                status_path=Path(str(args.status_path)) if args.status_path else None,
             )
             return 0
         if args.command == "init-config":
