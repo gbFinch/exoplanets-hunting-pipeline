@@ -49,6 +49,7 @@
 - [Pre-Built Target Lists](#-pre-built-target-lists)
 - [Output Structure](#-output-structure)
 - [Reproducibility](#-reproducibility)
+- [Documentation](#-documentation)
 - [Development](#-development)
 - [Acknowledgments](#-acknowledgments)
 - [License](#-license)
@@ -523,6 +524,23 @@ Every run records a complete provenance chain:
 | Manifest index | CSV row per target per run, enabling cross-run queries |
 
 Manifests: `outputs/<target>/manifests/` · Index: `outputs/manifests/run_manifest_index.csv`
+
+---
+
+## 📚 Documentation
+
+Detailed technical documentation lives in [`.agents/summary/`](.agents/summary/). Start with the [index](.agents/summary/index.md) — it routes you to the right doc for any question.
+
+| Document | Covers |
+|:---------|:-------|
+| [**Codebase Info**](.agents/summary/codebase_info.md) | Project identity, directory structure, entry points, CI setup |
+| [**Architecture**](.agents/summary/architecture.md) | System design, staged pipeline flow, caching architecture, reproducibility design |
+| [**Components**](.agents/summary/components.md) | Module-by-module responsibilities — where does X live? |
+| [**Interfaces**](.agents/summary/interfaces.md) | CLI surface, Python APIs, config schema, artifact contracts, external integrations |
+| [**Data Models**](.agents/summary/data_models.md) | Dataclass fields, CSV columns, JSON schemas |
+| [**Workflows**](.agents/summary/workflows.md) | End-to-end recipes — how to run a search, batch analysis, cross-matching |
+| [**Dependencies**](.agents/summary/dependencies.md) | Third-party libraries, network calls, dev tooling |
+| [**Review Notes**](.agents/summary/review_notes.md) | Doc gaps, assumptions, areas to double-check |
 
 ---
 
