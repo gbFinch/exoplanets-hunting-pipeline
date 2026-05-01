@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d1117"/>
+      <stop offset="50%" style="stop-color:#161b22"/>
+      <stop offset="100%" style="stop-color:#0d1117"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#58a6ff"/>
+      <stop offset="100%" style="stop-color:#bc8cff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#58a6ff;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#58a6ff;stop-opacity:0"/>
+    </radialGradient>
+    <filter id="star-glow">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="300" fill="url(#bg)"/>
+  <ellipse cx="600" cy="150" rx="400" ry="200" fill="url(#glow)"/>
+
+  <!-- Stars -->
+  <g fill="#fff" filter="url(#star-glow)">
+    <circle cx="80" cy="40" r="1.2"/><circle cx="150" cy="80" r="0.8"/>
+    <circle cx="250" cy="30" r="1.0"/><circle cx="320" cy="95" r="0.6"/>
+    <circle cx="450" cy="25" r="1.4"/><circle cx="520" cy="70" r="0.7"/>
+    <circle cx="680" cy="35" r="1.1"/><circle cx="780" cy="55" r="0.9"/>
+    <circle cx="850" cy="20" r="1.3"/><circle cx="950" cy="75" r="0.8"/>
+    <circle cx="1050" cy="40" r="1.0"/><circle cx="1120" cy="65" r="0.6"/>
+    <circle cx="100" cy="250" r="0.7"/><circle cx="200" cy="270" r="1.0"/>
+    <circle cx="380" cy="260" r="0.6"/><circle cx="500" cy="275" r="0.9"/>
+    <circle cx="700" cy="265" r="0.8"/><circle cx="900" cy="250" r="1.1"/>
+    <circle cx="1000" cy="270" r="0.7"/><circle cx="1100" cy="255" r="0.9"/>
+    <circle cx="60" cy="150" r="0.5"/><circle cx="1140" cy="140" r="0.6"/>
+  </g>
+
+  <!-- Transit dip visualization -->
+  <g transform="translate(600,185)" opacity="0.6">
+    <polyline points="-200,0 -160,0 -140,0 -120,0 -100,0 -80,0 -60,0 -45,-2 -30,18 -15,22 0,24 15,22 30,18 45,-2 60,0 80,0 100,0 120,0 140,0 160,0 200,0"
+      fill="none" stroke="url(#accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Star disc -->
+    <circle cx="0" cy="-30" r="18" fill="#ffd43b" opacity="0.12"/>
+    <!-- Planet dot -->
+    <circle cx="0" cy="-30" r="5" fill="#161b22" stroke="#58a6ff" stroke-width="0.8" opacity="0.7"/>
+  </g>
+
+  <!-- Title -->
+  <text x="600" y="110" text-anchor="middle" font-family="'Segoe UI',system-ui,-apple-system,sans-serif" font-size="56" font-weight="700" fill="#e6edf3" letter-spacing="-1">
+    🔭 Exohunt
+  </text>
+
+  <!-- Subtitle -->
+  <text x="600" y="145" text-anchor="middle" font-family="'Segoe UI',system-ui,-apple-system,sans-serif" font-size="18" fill="#8b949e" letter-spacing="0.5">
+    Automated Exoplanet Transit Detection Pipeline
+  </text>
+
+  <!-- Pipeline stages -->
+  <g transform="translate(600,255)" font-family="'SF Mono','Cascadia Code',monospace" font-size="11" fill="#58a6ff" text-anchor="middle">
+    <text x="-350">INGEST</text>
+    <text x="-230" fill="#484f58">→</text>
+    <text x="-170">PREPROCESS</text>
+    <text x="-60" fill="#484f58">→</text>
+    <text x="0">SEARCH</text>
+    <text x="60" fill="#484f58">→</text>
+    <text x="120">VET</text>
+    <text x="180" fill="#484f58">→</text>
+    <text x="260">CROSSMATCH</text>
+    <text x="350" fill="#484f58">→</text>
+    <text x="420" fill="#3fb950">DISCOVER</text>
+  </g>
+</svg>
