@@ -175,6 +175,19 @@ This means the first TLS/BLS pass is immediately sensitive to new, weaker signal
 - **Live candidate collection** — aggregates candidates across targets as the batch progresses
 - **Automatic run directories** — each batch creates a timestamped directory (`YYYY-MM-DDTHH-MM-SS_<preset>_<name>`) with a README summarizing the run configuration
 
+### ⚙️ Engineering Design
+
+Exohunt is built as a production-grade data pipeline, not a collection of scripts:
+
+- **Isolated, timestamped runs** — every execution creates a self-contained directory (`2026-04-30T21-51-10_deep-search_tier1/`) with its own artifacts, config snapshot, and auto-generated README. Runs never overwrite each other; you can compare Tuesday's results against Friday's side by side.
+- **Full reproducibility chain** — each run records a config content hash, data fingerprint hash, software versions, and a composite comparison key. Given the same input data and config hash, you get bit-identical outputs.
+- **Resumable batch processing** — `.done` sentinel files and a `run_state.json` checkpoint mean you can kill a 27-day batch run and restart exactly where you left off. Failed targets are logged with errors and retried with exponential backoff.
+- **Run-to-run comparison** — `comparison.py` provides tools to diff two runs by their comparison keys, detecting changes in preprocessing quality metrics, candidate counts, and vetting outcomes across config or code changes.
+- **Deep configurability** — ~40 parameters across 8 config sections (IO, ingest, preprocess, plot, BLS, vetting, parameters, batch), all with validated types, range checks, and deprecated-key rejection. Three built-in presets provide sensible defaults; `init-config` exports any preset as a fully-documented TOML file for customization.
+- **Multi-threaded execution** — TLS search supports configurable thread count for parallel period evaluation. Stellar parameter and ephemeris queries use thread-pool executors with timeouts to avoid blocking on slow network calls.
+- **Parameter-aware caching** — preprocessing parameters (sigma threshold + flatten window + flatten toggle) are encoded into cache file paths, so changing preprocessing settings serves from the correct cache without re-downloading from MAST. Raw and prepared caches are independent layers.
+- **Clean separation of concerns** — strict boundaries between config resolution (pure, deterministic), pipeline orchestration (stateful, side-effectful), domain modules (focused libraries), CLI veneer (thin argparse wrapper), and post-processing aggregation. Each module is independently testable with 17 test files covering ~200 tests.
+
 ### 🌐 NASA Archive Cross-Matching
 
 Post-processing step that queries the NASA Exoplanet Archive for each target system:
